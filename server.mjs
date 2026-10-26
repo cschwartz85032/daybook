@@ -129,6 +129,8 @@ export function createApp(options = {}) {
       if(subitemUpdates&&method==='POST'){const input=await body(req);if(input.assets?.some(a=>!a||!/^local-[a-f0-9-]{36}$/.test(a.id)||!/^[a-z0-9]{1,8}$/.test(a.file_extension)||!existsSync(resolve(uploadRoot,`${a.id}.${a.file_extension}`))))throw new InputError('Upload the attachments first.');send(res,201,store.addSubitemUpdate(subitemUpdates[1],subitemUpdates[2],input,auth.username));return;}
       const below = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/below$/i);
       if (below && method === 'POST') { send(res, 201, store.createBelow(below[1])); return; }
+      const reorder = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/reorder$/i);
+      if (reorder && method === 'POST') { send(res, 200, store.reorderTask(reorder[1],await body(req))); return; }
       const convert = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/convert-to-subitem$/i);
       if (convert && method === 'POST') { const input=await body(req); send(res, 200, store.convertToSubitem(convert[1],input.parent_id)); return; }
       const subitem = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/subitems\/([a-z0-9-]+)\/(convert-to-item|move)$/i);

@@ -1,6 +1,6 @@
 # Daybook
 
-Daybook is a self-hosted work management app with Monday-style boards, groups, subitems, updates, and automations. It runs on Node.js and SQLite, with no hosted account or paid service required. Its board interface, data model, and logo are independent of monday.com; Daybook is not affiliated with monday.com.
+Daybook is a self-hosted board workspace for projects, routines, and everyday tasks. Organize items into groups, track subitems and updates, and automate recurring work. It runs on Node.js and SQLite, with no hosted account or paid service required. Its board interface, data model, and logo are independent of monday.com; Daybook is not affiliated with monday.com.
 
 ## Features
 

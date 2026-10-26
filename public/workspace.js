@@ -36,7 +36,7 @@ let selectedIds = new Set(), selectedSubitems = new Set(), collapsedGroups = new
 const subitemSelectionKey=(task,child)=>`${task.id}:${child.id}`;
 try { favorites = new Set(JSON.parse(localStorage.getItem('daybook-favorites') || '[]')); hiddenColumns = new Set(JSON.parse(localStorage.getItem('daybook-hidden-columns') || '["board","quantity","repeat"]')); } catch {}
 const initial = name => esc(name?.slice(0,2).toUpperCase() || '');
-const brand = () => '<img class="brand-mark" src="./favicon.svg" alt=""><strong>daybook</strong><span class="brand-product">work management</span>';
+const brand = () => '<img class="brand-mark" src="./favicon.svg" alt=""><strong>daybook</strong><span class="brand-product">boards for work and life</span>';
 const isArchive = () => ['trash','completed','archived'].includes(view);
 function rememberPreferences() { try { localStorage.setItem('daybook-favorites',JSON.stringify([...favorites])); localStorage.setItem('daybook-hidden-columns',JSON.stringify([...hiddenColumns])); } catch {} }
 function navigate(id) { view=id; search=''; filter='all'; statusFilter=''; priorityFilter=''; personFilter=''; selectedIds.clear(); selectedSubitems.clear(); closePopover(); render(); }
@@ -57,7 +57,7 @@ function render() {
     </aside><button class="sidebar-scrim" data-action="menu" aria-label="Close navigation"></button>
     <main class="main"><header class="board-header"><div class="breadcrumb">Main workspace ${icon('chevron')} ${esc(title)}</div><div class="board-heading"><div class="board-title">${currentList?`<h1><button class="editable-heading" data-action="edit-board-name" data-list-id="${currentList.id}">${esc(title)}</button></h1>`:`<h1>${esc(title)}</h1>`}${currentList?`<button class="icon-button favorite ${favorites.has(view)?'starred':''}" data-action="favorite" aria-label="${favorites.has(view)?'Remove from':'Add to'} favorites" aria-pressed="${favorites.has(view)}">${icon('star')}</button>`:''}</div><div class="board-heading-actions"><button class="text-button" data-action="automations">${icon('bolt')}<span>Automations</span></button><a class="secondary export-button" href="./api/export" download>${icon('download')}<span>Export</span></a><button class="icon-button" data-action="board-menu" aria-label="Board menu">${icon('more')}</button></div></div><p class="board-description">${view==='trash'?'Deleted items stay here until you restore them.':view==='archived'?'Archived items are kept here until you restore them.':view==='completed'?'Everything you’ve completed, all in one place.':view==='today'?'Your items due today and overdue. Make room for what matters.':view==='upcoming'?'Keep an eye on what’s coming next.':currentList?'Plan, organize, and keep track of everything in one board.':'An overview of your boards. Every item, every step forward.'}</p></header>
     <nav class="view-tabs" aria-label="Board views">${[['table','board','Main Table'],['kanban','kanban','Kanban'],['calendar','calendar','Calendar']].map(([id,ic,label])=>`<button class="view-tab ${layout===id?'active':''}" data-layout="${id}" aria-pressed="${layout===id}">${icon(ic)}${label}</button>`).join('')}<span class="tab-spacer"></span><span class="board-private">${icon('lock')}Private board</span></nav>
-    <div class="board-toolbar"><div class="split-button"><button class="primary" data-action="new">New item</button><button class="primary" data-action="new-menu" aria-label="New item options">${icon('chevron')}</button></div><label class="board-search">${icon('search')}<input id="search" value="${esc(search)}" placeholder="Search" aria-label="Search items"><kbd>/</kbd></label><button class="tool-button ${personFilter?'active':''}" data-action="person-filter">${icon('person')}<span>Person</span></button><button class="tool-button ${statusFilter||priorityFilter?'active':''}" data-action="filter-menu">${icon('filter')}<span>Filter</span>${statusFilter||priorityFilter?'<i class="filter-dot"></i>':''}</button><button class="tool-button ${sort!=='newest'?'active':''}" data-action="sort-menu">${icon('sort')}<span>Sort</span></button><button class="tool-button" data-action="hide-menu">${icon('eye')}<span>Hide</span></button><button class="tool-button" data-action="group-menu">${icon('group')}<span>Group by</span></button><button class="icon-button toolbar-more" data-action="board-menu" aria-label="More board options">${icon('more')}</button></div>
+    <div class="board-toolbar"><div class="split-button"><button class="primary" data-action="new">New item</button><button class="primary" data-action="new-menu" aria-label="New item options">${icon('chevron')}</button></div><label class="board-search">${icon('search')}<input id="search" value="${esc(search)}" placeholder="Search" aria-label="Search items"><kbd>/</kbd></label><button class="tool-button ${personFilter?'active':''}" data-action="person-filter">${icon('person')}<span>Person</span></button><button class="tool-button ${statusFilter||priorityFilter?'active':''}" data-action="filter-menu">${icon('filter')}<span>Filter</span>${statusFilter||priorityFilter?'<i class="filter-dot"></i>':''}</button><button class="tool-button ${sort!=='manual'?'active':''}" data-action="sort-menu">${icon('sort')}<span>Sort</span></button><button class="tool-button" data-action="hide-menu">${icon('eye')}<span>Hide</span></button><button class="tool-button" data-action="group-menu">${icon('group')}<span>Group by</span></button><button class="icon-button toolbar-more" data-action="board-menu" aria-label="More board options">${icon('more')}</button></div>
     <div id="filter-summary"></div><div class="board-scroll"><div id="task-content"></div></div><footer class="board-footer"><span id="visible-count"></span><span>${icon('check')}All changes saved</span></footer><div id="selection-bar"></div></main></div>`;
   renderTasks();
   $('.board-scroll').scrollTop=previousScroll; $('.board-scroll').scrollLeft=previousHorizontal;
@@ -75,7 +75,7 @@ function visibleTasks() {
   if(personFilter) tasks=tasks.filter(t=>personFilter==='unassigned'?!t.assignee:t.assignee===auth.username);
   if(search.trim()) { const q=search.toLowerCase().trim(); tasks=tasks.filter(t=>[t.title,t.notes,t.category,listById(t.list_id)?.name,...t.checklist.map(c=>c.title)].some(v=>v?.toLowerCase().includes(q))); }
   const p={high:0,medium:1,low:2,none:3};
-  return tasks.sort((a,b)=>sort==='title'?a.title.localeCompare(b.title):sort==='priority'?p[a.priority]-p[b.priority]:sort==='status'?Object.keys(statusNames).indexOf(a.status)-Object.keys(statusNames).indexOf(b.status):sort==='smart'?(a.due_date||'9999').localeCompare(b.due_date||'9999'):b.created_at.localeCompare(a.created_at));
+  return tasks.sort((a,b)=>sort==='manual'?a.order_position-b.order_position||a.id.localeCompare(b.id):sort==='title'?a.title.localeCompare(b.title):sort==='priority'?p[a.priority]-p[b.priority]:sort==='status'?Object.keys(statusNames).indexOf(a.status)-Object.keys(statusNames).indexOf(b.status):sort==='smart'?(a.due_date||'9999').localeCompare(b.due_date||'9999'):b.created_at.localeCompare(a.created_at));
 }
 function makeGroups(tasks) {
   const groups = new Map(), currentList=listById(view), filtered=search.trim()||statusFilter||priorityFilter||personFilter;
@@ -99,6 +99,7 @@ function makeGroups(tasks) {
 }
 let renderedGroups=[];
 let groupPointerDrag=null;
+let itemPointerDrag=null;
 const groupLimits=new Map();
 const kanbanLimits=new Map();
 let largeAllInitialized=false;
@@ -136,6 +137,7 @@ function subitemPanel(t,cols){
 }
 function taskRow(t,cols) {
   const disabled=(t.deleted_at||t.archived_at)?'disabled':'', late=t.status!=='done'&&t.due_date&&t.due_date<data.today;
+  const canReorder=sort==='manual'&&layout==='table'&&groupBy==='group'&&!!listById(view)&&!isArchive()&&!search.trim()&&!statusFilter&&!priorityFilter&&!personFilter;
   const cells={
     person:`<button class="person-cell" data-action="person-cell" aria-label="Assign ${esc(t.title)}" ${disabled}>${t.assignee?`<span class="avatar small" title="${esc(t.assignee)}">${initial(t.assignee)}</span>`:`<span class="unassigned">${icon('person')}</span>`}</button>`,
     status:`<button class="label-cell status-${t.status}" style="background:${statusColorFor(t.list_id,t.status)};color:#fff" data-action="status-cell" aria-label="Status for ${esc(t.title)}: ${esc(statusLabelFor(t.list_id,t.status))}" ${disabled}>${esc(statusLabelFor(t.list_id,t.status))}</button>`,
@@ -145,7 +147,7 @@ function taskRow(t,cols) {
     quantity:`<input class="cell-input quantity-input" data-field="quantity" value="${esc(t.quantity)}" maxlength="100" aria-label="Quantity for ${esc(t.title)}" ${disabled}>`,
     repeat:`<button class="board-cell" data-action="edit">${t.repeat==='none'?'—':esc(repeatNames[t.repeat])}</button>`
   };
-  return `<tr class="item-row ${selectedIds.has(t.id)?'selected':''}" data-id="${t.id}"><td class="selection-cell"><input type="checkbox" data-select-item="${t.id}" aria-label="Select ${esc(t.title)}" ${selectedIds.has(t.id)?'checked':''}></td><td class="item-cell"><div class="item-title-wrap">${t.checklist.length?`<button class="icon-button subitem-toggle ${expandedItems.has(t.id)?'expanded':''}" data-action="expand-item" aria-label="${expandedItems.has(t.id)?'Collapse':'Expand'} subitems for ${esc(t.title)}" aria-expanded="${expandedItems.has(t.id)}">${icon('chevron')}</button>`:'<span class="item-indent"></span>'}<input class="cell-input item-title" data-field="title" value="${esc(t.title)}" maxlength="500" aria-label="Item name: ${esc(t.title)}" ${disabled}>${t.checklist.length?`<span class="subitem-count">${t.checklist.length}</span>`:''}<button class="icon-button subitem-quick-add" data-action="quick-add-subitem" aria-label="Add subitem to ${esc(t.title)}" ${disabled}>${icon('plus')}</button><button class="icon-button item-updates ${t.notes||updatesFor(updateKeyFor(t)).length?'has-notes':''}" data-action="show-updates" aria-label="Open updates for ${esc(t.title)} (${updatesFor(updateKeyFor(t)).length})">${icon('message')}${updatesFor(updateKeyFor(t)).length?`<span class="update-count">${updatesFor(updateKeyFor(t)).length}</span>`:''}</button></div></td>${cols.map(k=>`<td class="column-${k}">${cells[k]}</td>`).join('')}<td><button class="icon-button row-more" data-action="${t.deleted_at?'restore':t.archived_at?'restore-archive':'item-menu'}" aria-label="${t.deleted_at||t.archived_at?'Restore':'Options for'} ${esc(t.title)}">${icon(t.deleted_at||t.archived_at?'repeat':'more')}</button></td></tr>${subitemPanel(t,cols)}`;
+  return `<tr class="item-row ${selectedIds.has(t.id)?'selected':''}" data-id="${t.id}"><td class="selection-cell">${canReorder?`<button class="icon-button item-drag-handle" type="button" data-drag-item="${t.id}" aria-label="Drag ${esc(t.title)} to reorder" title="Drag to reorder; arrow keys move one row">${icon('grip')}</button>`:''}<input type="checkbox" data-select-item="${t.id}" aria-label="Select ${esc(t.title)}" ${selectedIds.has(t.id)?'checked':''}></td><td class="item-cell"><div class="item-title-wrap">${t.checklist.length?`<button class="icon-button subitem-toggle ${expandedItems.has(t.id)?'expanded':''}" data-action="expand-item" aria-label="${expandedItems.has(t.id)?'Collapse':'Expand'} subitems for ${esc(t.title)}" aria-expanded="${expandedItems.has(t.id)}">${icon('chevron')}</button>`:'<span class="item-indent"></span>'}<input class="cell-input item-title" data-field="title" value="${esc(t.title)}" maxlength="500" aria-label="Item name: ${esc(t.title)}" ${disabled}>${t.checklist.length?`<span class="subitem-count">${t.checklist.length}</span>`:''}<button class="icon-button subitem-quick-add" data-action="quick-add-subitem" aria-label="Add subitem to ${esc(t.title)}" ${disabled}>${icon('plus')}</button><button class="icon-button item-updates ${t.notes||updatesFor(updateKeyFor(t)).length?'has-notes':''}" data-action="show-updates" aria-label="Open updates for ${esc(t.title)} (${updatesFor(updateKeyFor(t)).length})">${icon('message')}${updatesFor(updateKeyFor(t)).length?`<span class="update-count">${updatesFor(updateKeyFor(t)).length}</span>`:''}</button></div></td>${cols.map(k=>`<td class="column-${k}">${cells[k]}</td>`).join('')}<td><button class="icon-button row-more" data-action="${t.deleted_at?'restore':t.archived_at?'restore-archive':'item-menu'}" aria-label="${t.deleted_at||t.archived_at?'Restore':'Options for'} ${esc(t.title)}">${icon(t.deleted_at||t.archived_at?'repeat':'more')}</button></td></tr>${subitemPanel(t,cols)}`;
 }
 async function saveSubitem(task,checklist,focusNext=false){
   try {const result=await api(`tasks/${task.id}`,'PATCH',{checklist,version:task.version});data.tasks=data.tasks.map(t=>t.id===task.id?result:t);renderTasks();if(focusNext)document.querySelector(`.subitem-add[data-id="${task.id}"] input`)?.focus();return result;}
@@ -162,7 +164,28 @@ async function moveGroupTo(sourceId,targetId,after){
   try{await api(`groups/${sourceId}`,'PATCH',{version:source.version,position});await refresh();notify('Group order updated.');}
   catch(e){if(e.status===409)await refresh();handleError(e);}
 }
+async function moveItemTo(sourceId,targetId,after){
+  const source=data.tasks.find(t=>t.id===sourceId),target=data.tasks.find(t=>t.id===targetId);
+  if(!source||!target||source.id===target.id||source.list_id!==target.list_id||source.category!==target.category)return;
+  try{await api(`tasks/${sourceId}/reorder`,'POST',{version:source.version,target_id:targetId,after});await refresh();notify('Item order saved.');}
+  catch(e){if(e.status===409)await refresh();handleError(e);}
+}
 function bindBoardInputs(){
+  document.querySelectorAll('.item-drag-handle').forEach(handle=>{
+    handle.onpointerdown=e=>{if(e.button!==0)return;itemPointerDrag={sourceId:handle.dataset.dragItem,startX:e.clientX,startY:e.clientY,targetId:'',after:false,active:false};handle.setPointerCapture(e.pointerId);e.preventDefault();};
+    handle.onpointermove=e=>{
+      const drag=itemPointerDrag;if(!drag||drag.sourceId!==handle.dataset.dragItem)return;
+      if(!drag.active&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<5)return;
+      drag.active=true;handle.closest('.item-row').classList.add('item-dragging');
+      document.querySelectorAll('.item-row').forEach(row=>row.classList.remove('item-drop-before','item-drop-after'));
+      const row=document.elementFromPoint(e.clientX,e.clientY)?.closest('.item-row');
+      drag.targetId=row&&row.closest('.board-group')===handle.closest('.board-group')&&row.dataset.id!==drag.sourceId?row.dataset.id:'';
+      if(drag.targetId){const rect=row.getBoundingClientRect();drag.after=e.clientY>rect.top+rect.height/2;row.classList.add(drag.after?'item-drop-after':'item-drop-before');}
+    };
+    const finish=commit=>{const drag=itemPointerDrag;itemPointerDrag=null;document.querySelectorAll('.item-row').forEach(row=>row.classList.remove('item-dragging','item-drop-before','item-drop-after'));if(commit&&drag?.active&&drag.targetId)moveItemTo(drag.sourceId,drag.targetId,drag.after);};
+    handle.onpointerup=()=>finish(true);handle.onpointercancel=()=>finish(false);
+    handle.onkeydown=e=>{if(!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();const row=handle.closest('.item-row'),rows=[...row.closest('.board-group').querySelectorAll('.item-row')],index=rows.indexOf(row),target=rows[index+(e.key==='ArrowUp'?-1:1)];if(target)moveItemTo(row.dataset.id,target.dataset.id,e.key==='ArrowDown');};
+  });
   document.querySelectorAll('.group-drag-handle').forEach(handle=>{
     handle.onpointerdown=e=>{if(e.button!==0)return;groupPointerDrag={sourceId:handle.dataset.dragGroup,startX:e.clientX,startY:e.clientY,targetId:'',after:false,active:false};handle.setPointerCapture(e.pointerId);e.preventDefault();};
     handle.onpointermove=e=>{
@@ -383,7 +406,7 @@ document.addEventListener('click',async event=>{
     else if(a==='person-filter')showPopover(b,'<div class="menu-label">Filter by person</div>'+choiceMenu({'':'Everyone',me:'Assigned to me',unassigned:'Unassigned'},personFilter,'filter-person'));
     else if(a==='filter-person'){personFilter=b.dataset.value;closePopover();render();}
     else if(a==='filter-menu'){showPopover(b,`<div class="menu-label">Filter this board</div><label class="field">Status<select id="status-filter">${options({'':'All statuses',...visibleStatusLabels()},statusFilter)}</select></label><label class="field">Priority<select id="priority-filter">${options({'':'All priorities',...priorityNames},priorityFilter)}</select></label><button class="quiet-link" data-action="clear-filters">Clear all filters</button>`);$('#status-filter').onchange=e=>{statusFilter=e.target.value;renderTasks();};$('#priority-filter').onchange=e=>{priorityFilter=e.target.value;renderTasks();};}
-    else if(a==='sort-menu')showPopover(b,'<div class="menu-label">Sort items by</div>'+choiceMenu({newest:'Recently created',title:'Item name',smart:'Date',priority:'Priority',status:'Status'},sort,'set-sort'));
+    else if(a==='sort-menu')showPopover(b,'<div class="menu-label">Sort items by</div>'+choiceMenu({manual:'Board order',newest:'Recently created',title:'Item name',smart:'Date',priority:'Priority',status:'Status'},sort,'set-sort'));
     else if(a==='set-sort'){sort=b.dataset.value;closePopover();render();}
     else if(a==='group-menu')showPopover(b,'<div class="menu-label">Group items by</div>'+choiceMenu({group:'Board groups',status:'Status',board:'Board'},groupBy,'set-group'));
     else if(a==='set-group'){groupBy=b.dataset.value;layout='table';closePopover();render();}

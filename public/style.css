@@ -140,6 +140,15 @@ dialog{border:0;border-radius:9px;box-shadow:0 15px 65px #0003;padding:0;color:i
 .board-group.group-drop-before::before{top:-13px}
 .board-group.group-drop-after::after{bottom:-16px}
 @media(hover:none){.group-more,.group-drag-handle{opacity:1;pointer-events:auto}}
+.item-row .selection-cell{position:relative}
+.item-drag-handle{position:absolute;left:-25px;top:5px;width:22px;height:26px;padding:2px;opacity:0;color:#8b8d9d;cursor:grab;touch-action:none}
+.item-drag-handle:active{cursor:grabbing}
+.item-drag-handle svg{width:17px;height:17px;fill:currentColor;stroke:none}
+.item-row:hover .item-drag-handle,.item-drag-handle:focus-visible{opacity:1}
+.item-row.item-dragging td{opacity:.55}
+.item-row.item-drop-before td{box-shadow:inset 0 3px #0073ea}
+.item-row.item-drop-after td{box-shadow:inset 0 -3px #0073ea}
+@media(hover:none){.item-drag-handle{opacity:1}}
 .automation-dialog{width:720px;max-height:calc(100dvh - 40px)}
 .automation-dialog .dialog-head{align-items:flex-start}
 .automation-dialog .dialog-body{max-height:calc(100dvh - 150px)}
