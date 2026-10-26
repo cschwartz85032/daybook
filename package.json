@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A private, self-hosted personal task manager",
+  "description": "Self-hosted Monday-style work management with boards, subitems, automations, and SQLite",
   "engines": { "node": ">=24.8.0 <25" },
   "scripts": {
     "start": "node server.mjs",
