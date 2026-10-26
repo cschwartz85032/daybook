@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#eceff8">
+  <meta name="description" content="Your personal work management workspace. Organize boards, groups, and items in one place.">
+  <title>Daybook · Work management</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script src="./app.js" defer></script>
+  <script src="./workspace.js" defer></script>
+</head>
+<body>
+  <div id="app"><div class="boot">Opening your daybook…</div></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="editor" aria-labelledby="editor-heading"></dialog>
+  <dialog id="small-dialog" aria-labelledby="small-heading"></dialog>
+  <div id="popover" class="popover" role="dialog" aria-label="Board options" hidden></div>
+</body>
+</html>

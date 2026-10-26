@@ -1,0 +1,10 @@
+*
+!package.json
+!server.mjs
+!lib/
+!lib/**
+!public/
+!public/**
+!scripts/
+!scripts/account.mjs
+!scripts/backup.mjs

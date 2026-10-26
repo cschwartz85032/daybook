@@ -1,0 +1,43 @@
+name: daybook
+services:
+  daybook:
+    build: .
+    image: daybook:local
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${DAYBOOK_PORT:-8098}:8098"
+    environment:
+      NODE_ENV: production
+      PUBLIC_URL: ${PUBLIC_URL:?Set the full HTTPS URL in .env}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      DB_PATH: /app/data/daybook.sqlite
+      BACKUP_DIR: /app/backups
+    volumes:
+      - daybook-data:/app/data
+      - daybook-backups:/app/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "const u=new URL(process.env.PUBLIC_URL);const p=u.pathname.endsWith('/')?u.pathname.slice(0,-1):u.pathname;fetch('http://127.0.0.1:8098'+p+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+volumes:
+  daybook-data:
+  daybook-backups:
