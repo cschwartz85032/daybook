@@ -148,6 +148,11 @@ dialog{border:0;border-radius:9px;box-shadow:0 15px 65px #0003;padding:0;color:i
 .item-row.item-dragging td{opacity:.55}
 .item-row.item-drop-before td{box-shadow:inset 0 3px #0073ea}
 .item-row.item-drop-after td{box-shadow:inset 0 -3px #0073ea}
+.board-table th.column-heading{position:relative}
+.column-heading .editable-column{padding-right:24px!important}
+.column-more{position:absolute;right:2px;top:4px;width:25px;height:25px;opacity:0;color:#676879}
+.column-more svg{width:16px;height:16px}
+.column-heading:hover .column-more,.column-heading:focus-within .column-more{opacity:1}
 .board-group.item-drop-group-start .group-heading{background:#e5f4ff;box-shadow:inset 0 -3px #0073ea}
 .board-group.item-drop-group-end::after{content:"";position:absolute;left:0;right:0;bottom:-8px;height:3px;background:#0073ea;border-radius:2px;pointer-events:none}
 @media(hover:none){.item-drag-handle{opacity:1}}

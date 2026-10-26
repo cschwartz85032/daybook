@@ -156,6 +156,23 @@ test('added board columns and item values survive restart and export',()=>{
   }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 
+test('column type changes validate saved values and deletion removes them',()=>{
+  const s=openStore(':memory:');
+  try{
+    const board=s.snapshot().lists[0],id='col_87654321';
+    let list=s.updateList(board.id,{version:board.version,custom_columns:[{id,name:'Notes',type:'text'}]});
+    const item=s.insert({list_id:board.id,title:'Entry',custom_values:{[id]:'not a number'}});
+    assert.throws(()=>s.updateList(board.id,{version:list.version,custom_columns:[{id,name:'Notes',type:'number'}]}),/nonnumeric/);
+    assert.equal(s.findTask(item.id).custom_values[id],'not a number');
+    const edited=s.update(item.id,{version:item.version,custom_values:{[id]:'42'}});
+    list=s.updateList(board.id,{version:list.version,custom_columns:[{id,name:'Amount',type:'number'}]});
+    assert.equal(JSON.parse(list.custom_columns)[0].name,'Amount');
+    assert.throws(()=>s.update(edited.id,{version:edited.version,custom_values:{[id]:'invalid'}}),/must be a number/);
+    s.updateList(board.id,{version:list.version,custom_columns:[]});
+    assert.equal(s.findTask(item.id).custom_values[id],undefined);
+  }finally{s.db.close();}
+});
+
 test('schema 8 migration keeps the displayed order of existing group items',()=>{
   const dir=mkdtempSync(join(tmpdir(),'daybook-order-migration-')),path=join(dir,'workspace.sqlite');
   let s=openStore(path);
