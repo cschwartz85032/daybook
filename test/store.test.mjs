@@ -24,7 +24,7 @@ test('board upgrade preserves existing items and adds persistent groups and peop
     assert.equal(s.findTask(original.id).assignee,'owner');
     assert.equal(s.findTask(original.id).category,'Next week');
     assert.equal(s.findTask(original.id).version,edited.version);
-    assert.equal(s.get('PRAGMA user_version').user_version,9);
+    assert.equal(s.get('PRAGMA user_version').user_version,10);
   } finally {s.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -36,7 +36,7 @@ test('schema 3 upgrade keeps imported items while adding editable board settings
     const task=s.insert({title:'Imported item',list_id,source_id:'monday:example',checklist:[{id:'subitem',title:'Nested',done:false}]});
     s.db.exec('ALTER TABLE tasks DROP COLUMN archived_at; ALTER TABLE tasks DROP COLUMN converted_into; ALTER TABLE lists DROP COLUMN column_labels; ALTER TABLE lists DROP COLUMN status_settings; ALTER TABLE lists DROP COLUMN subitem_status_settings; ALTER TABLE lists DROP COLUMN deleted_at; ALTER TABLE lists DROP COLUMN version; ALTER TABLE board_groups DROP COLUMN version; PRAGMA user_version=3');
     s.db.close();s=openStore(path);
-    assert.equal(s.get('PRAGMA user_version').user_version,9);
+    assert.equal(s.get('PRAGMA user_version').user_version,10);
     assert.equal(s.findTask(task.id).source_id,'monday:example');
     assert.equal(s.findTask(task.id).checklist[0].title,'Nested');
     assert.equal(s.get('SELECT column_labels FROM lists WHERE id=?',list_id).column_labels,'{}');
@@ -136,6 +136,26 @@ test('drag moves items between groups, including empty groups, and persists thei
   }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 
+test('added board columns and item values survive restart and export',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'daybook-custom-columns-')),path=join(dir,'workspace.sqlite');
+  let s=openStore(path);
+  try{
+    const board=s.snapshot().lists[0],id='col_12345678',columns=[{id,name:'Budget',type:'number'}];
+    const changed=s.updateList(board.id,{version:board.version,custom_columns:columns});
+    assert.deepEqual(JSON.parse(changed.custom_columns),columns);
+    const item=s.insert({title:'Plan',list_id:board.id,custom_values:{[id]:'125.50'}});
+    assert.equal(item.custom_values[id],'125.50');
+    const edited=s.update(item.id,{version:item.version,custom_values:{[id]:'200'}});
+    assert.equal(edited.custom_values[id],'200');
+    assert.throws(()=>s.updateList(board.id,{version:changed.version,custom_columns:[{id,name:'Bad',type:'unknown'}]}),/column type/);
+    s.db.close();s=openStore(path);
+    assert.deepEqual(JSON.parse(s.snapshot().lists.find(l=>l.id===board.id).custom_columns),columns);
+    assert.equal(s.snapshot().tasks.find(t=>t.id===item.id).custom_values[id],'200');
+    const restored=openStore(':memory:');
+    try{restored.importData(s.snapshot());assert.equal(restored.snapshot().tasks.find(t=>t.title==='Plan').custom_values[id],'200');assert.deepEqual(JSON.parse(restored.snapshot().lists.find(l=>l.name===board.name).custom_columns),columns);}finally{restored.db.close();}
+  }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
 test('schema 8 migration keeps the displayed order of existing group items',()=>{
   const dir=mkdtempSync(join(tmpdir(),'daybook-order-migration-')),path=join(dir,'workspace.sqlite');
   let s=openStore(path);
@@ -148,7 +168,7 @@ test('schema 8 migration keeps the displayed order of existing group items',()=>
     s.db.close();s=openStore(path);
     const rows=s.all('SELECT title,order_position FROM tasks WHERE list_id=? AND category=? ORDER BY order_position',list_id,'Today');
     assert.deepEqual(rows.map(row=>row.title),['Newer','Older']);
-    assert.equal(s.get('PRAGMA user_version').user_version,9);
+    assert.equal(s.get('PRAGMA user_version').user_version,10);
   }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 
