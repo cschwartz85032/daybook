@@ -21,6 +21,14 @@ const icon = name => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
 const $ = (s, context = document) => context.querySelector(s);
 const app = $('#app'), editor = $('#editor'), small = $('#small-dialog');
+for (const dialog of [editor,small]) {
+  dialog.addEventListener('click',event=>{
+    if(dialog.dataset.updatesOpen!=='true'||event.target!==dialog)return;
+    const bounds=dialog.getBoundingClientRect();
+    if(event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom)dialog.close();
+  });
+  dialog.addEventListener('close',()=>delete dialog.dataset.updatesOpen);
+}
 let data = { tasks: [], lists: [], today: '', timeZone: 'America/Phoenix' }, auth, view = 'all', filter = 'all', search = '', sort = 'manual', selected, pendingImport, toastTimer, editChecklist = [], updateIndex = new Map(), updateFiles=[];
 const statusNames = { todo:'To do', doing:'In progress', waiting:'Waiting', done:'Done' };
 const repeatNames = { none:'Does not repeat', daily:'Every day', weekdays:'Every weekday', weekly:'Every week', monthly:'Every month' };
@@ -101,6 +109,7 @@ async function postUpdate(task,child=null,root=editor) {
 }
 function openEditor(task, defaults = {}) {
   closePopover(); if (small.open) small.close();
+  delete editor.dataset.updatesOpen;
   updateFiles=[];
   selected = task || null;
   const t = task || {title:'',notes:'',list_id:listById(view)?.id || data.lists.find(l=>!l.deleted_at)?.id,status:'todo',priority:'none',due_date:view === 'today' ? data.today : '',category:'',quantity:'',repeat:'none',checklist:[],assignee:'',...defaults};

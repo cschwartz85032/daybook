@@ -346,7 +346,7 @@ function openAutomationForm(boardId,ruleId=''){
   draw();
   form.onsubmit=async e=>{e.preventDefault();const submit=$('[type=submit]',form),[trigger_type,action_type]=selectedRecipe.split(':'),values=new FormData(form),action_value=action_type==='move_group'?values.get('group_id'):action_type==='create_item'?JSON.stringify({title:values.get('item_title'),group_id:values.get('group_id')}):action_type==='set_completed_on'?'':values.get('action_text');if(action_type==='move_group'&&!groups.length){$('.form-error',form).textContent='Create a group on this board before saving this rule.';return;}submit.disabled=true;submit.textContent='Saving…';try{await api(rule?`automations/${rule.id}`:'automations',rule?'PATCH':'POST',{...(rule?{version:rule.version}:{list_id:boardId}),name:values.get('name'),trigger_type,trigger_value:values.get('trigger_value')||'',action_type,action_value,enabled:values.has('enabled')});await refresh();openAutomations(boardId);notify('Automation saved.');}catch(error){$('.form-error',form).textContent=error.message;submit.disabled=false;submit.textContent=rule?'Save changes':'Create automation';}};
 }
-function openSubitemUpdates(task,child){updateFiles=[];infoDialog(`Updates · ${esc(child.title)}`,renderUpdatesSection(task,subitemUpdateKey(child)));bindUpdateComposer(small,task,child);$('#update-text',small)?.focus();}
+function openSubitemUpdates(task,child){updateFiles=[];infoDialog(`Updates · ${esc(child.title)}`,renderUpdatesSection(task,subitemUpdateKey(child)));small.dataset.updatesOpen='true';bindUpdateComposer(small,task,child);$('#update-text',small)?.focus();}
 async function bulkChange(changes){
   const ids=[...selectedIds];let saved=0;
   try {for(const id of ids){const task=data.tasks.find(t=>t.id===id),target=changes.list_id,settings=target?statusLabelsFor(target):null,move=target?{...changes,checklist:task.checklist.map(child=>Object.hasOwn(settings,child.status||'todo')?child:{...child,status:'todo',done:false}),...(!Object.hasOwn(settings,task.status)?{status:'todo'}:{})}:changes;await api(`tasks/${id}`,'PATCH',{...move,version:task.version});saved++;selectedIds.delete(id);}notify(`${saved} items updated.`);}
@@ -363,7 +363,7 @@ document.addEventListener('click',async event=>{
   try {
     if(a==='new')openEditor();
     else if(a==='edit')openEditor(t);
-    else if(a==='show-updates'){openEditor(t);$('#item-updates')?.scrollIntoView({block:'nearest'});}
+    else if(a==='show-updates'){openEditor(t);editor.dataset.updatesOpen='true';$('#item-updates')?.scrollIntoView({block:'nearest'});}
     else if(a==='close-editor')editor.close();
     else if(a==='close-small')small.close();
     else if(a==='menu')$('.workspace-shell').classList.toggle('sidebar-open');
