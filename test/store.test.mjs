@@ -84,7 +84,7 @@ test('group order survives a database restart',()=>{
   }finally{store.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 
-test('item order persists within a group and rejects stale or cross-group moves',()=>{
+test('item order persists within a group and rejects stale or cross-board moves',()=>{
   const dir=mkdtempSync(join(tmpdir(),'daybook-item-order-')),path=join(dir,'workspace.sqlite');
   let s=openStore(path);
   try{
@@ -96,7 +96,9 @@ test('item order persists within a group and rejects stale or cross-group moves'
     assert.deepEqual(titles(),['A','C','B']);
     assert.throws(()=>s.reorderTask(a.id,{version:a.version,target_id:b.id,after:true}),{status:409});
     const other=s.insert({title:'Other',list_id,category:'Later'});
-    assert.throws(()=>s.reorderTask(b.id,{version:b.version,target_id:other.id,after:true}),{status:400});
+    const anotherBoard=s.addList({name:'Another board'});
+    const external=s.insert({title:'External',list_id:anotherBoard.id});
+    assert.throws(()=>s.reorderTask(b.id,{version:b.version,target_id:external.id,after:true}),{status:400});
     const below=s.createBelow(c.id);
     assert.deepEqual(titles(),['A','C','New item','B']);
     assert.equal(below.category,'Today');
@@ -104,6 +106,33 @@ test('item order persists within a group and rejects stale or cross-group moves'
     assert.deepEqual(titles(),['A','C','New item','B']);
     const moved=s.update(b.id,{version:s.findTask(b.id).version,category:'Later'});
     assert.equal(moved.order_position<s.findTask(other.id).order_position,true);
+  }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('drag moves items between groups, including empty groups, and persists their order',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'daybook-cross-group-order-')),path=join(dir,'workspace.sqlite');
+  let s=openStore(path);
+  try{
+    const list_id=s.snapshot().lists[0].id;
+    s.addGroup({list_id,name:'Today'});s.addGroup({list_id,name:'Later'});s.addGroup({list_id,name:'Empty'});
+    const a=s.insert({title:'A',list_id,category:'Today'}),b=s.insert({title:'B',list_id,category:'Today'});
+    const c=s.insert({title:'C',list_id,category:'Later'}),d=s.insert({title:'D',list_id,category:'Later'});
+    const titles=category=>s.snapshot().tasks.filter(t=>t.list_id===list_id&&t.category===category).sort((x,y)=>x.order_position-y.order_position).map(t=>t.title);
+    const moved=s.reorderTask(a.id,{version:a.version,target_id:c.id,after:true});
+    assert.equal(moved.category,'Later');
+    assert.deepEqual(titles('Later'),['D','C','A']);
+    assert.deepEqual(titles('Today'),['B']);
+    assert.throws(()=>s.reorderTask(a.id,{version:a.version,category:'Empty',after:false}),{status:409});
+    const empty=s.reorderTask(b.id,{version:b.version,category:'Empty',after:false});
+    assert.equal(empty.category,'Empty');
+    assert.deepEqual(titles('Empty'),['B']);
+    s.reorderTask(d.id,{version:d.version,category:'Empty',after:true});
+    assert.deepEqual(titles('Empty'),['B','D']);
+    assert.throws(()=>s.reorderTask(empty.id,{version:empty.version,category:'Unknown',after:false}),{status:400});
+    s.db.close();s=openStore(path);
+    assert.deepEqual(titles('Today'),[]);
+    assert.deepEqual(titles('Later'),['C','A']);
+    assert.deepEqual(titles('Empty'),['B','D']);
   }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 

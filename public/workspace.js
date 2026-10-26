@@ -164,25 +164,34 @@ async function moveGroupTo(sourceId,targetId,after){
   try{await api(`groups/${sourceId}`,'PATCH',{version:source.version,position});await refresh();notify('Group order updated.');}
   catch(e){if(e.status===409)await refresh();handleError(e);}
 }
-async function moveItemTo(sourceId,targetId,after){
+async function moveItemTo(sourceId,targetId,after,category){
   const source=data.tasks.find(t=>t.id===sourceId),target=data.tasks.find(t=>t.id===targetId);
-  if(!source||!target||source.id===target.id||source.list_id!==target.list_id||source.category!==target.category)return;
-  try{await api(`tasks/${sourceId}/reorder`,'POST',{version:source.version,target_id:targetId,after});await refresh();notify('Item order saved.');}
+  if(!source||targetId&&!target||target&&(source.id===target.id||source.list_id!==target.list_id)||!target&&typeof category!=='string')return;
+  try{await api(`tasks/${sourceId}/reorder`,'POST',{version:source.version,...(target?{target_id:targetId}:{category}),after});await refresh();notify(source.category===(target?.category??category)?'Item order saved.':'Item moved to another group.');}
   catch(e){if(e.status===409)await refresh();handleError(e);}
 }
 function bindBoardInputs(){
   document.querySelectorAll('.item-drag-handle').forEach(handle=>{
-    handle.onpointerdown=e=>{if(e.button!==0)return;itemPointerDrag={sourceId:handle.dataset.dragItem,startX:e.clientX,startY:e.clientY,targetId:'',after:false,active:false};handle.setPointerCapture(e.pointerId);e.preventDefault();};
+    const clearTargets=()=>{document.querySelectorAll('.item-row').forEach(row=>row.classList.remove('item-drop-before','item-drop-after'));document.querySelectorAll('.board-group').forEach(section=>section.classList.remove('item-drop-group-start','item-drop-group-end'));};
+    const updateTarget=(drag,x,y)=>{
+      clearTargets();drag.targetId='';drag.targetCategory=undefined;
+      const hit=document.elementFromPoint(x,y),section=hit?.closest('.board-group'),group=section&&renderedGroups[Number(section.dataset.group)];
+      if(!group||group.defaults.list_id!==view)return;
+      const row=hit.closest('.item-row');
+      if(row?.dataset.id===drag.sourceId)return;
+      drag.targetCategory=group.defaults.category??group.key;
+      if(row){drag.targetId=row.dataset.id;const rect=row.getBoundingClientRect();drag.after=y>rect.top+rect.height/2;row.classList.add(drag.after?'item-drop-after':'item-drop-before');}
+      else{drag.after=!hit.closest('.group-heading,thead');section.classList.add(drag.after?'item-drop-group-end':'item-drop-group-start');}
+    };
+    handle.onpointerdown=e=>{if(e.button!==0)return;itemPointerDrag={sourceId:handle.dataset.dragItem,startX:e.clientX,startY:e.clientY,x:e.clientX,y:e.clientY,targetId:'',targetCategory:undefined,after:false,active:false,frame:0};handle.setPointerCapture(e.pointerId);e.preventDefault();};
     handle.onpointermove=e=>{
       const drag=itemPointerDrag;if(!drag||drag.sourceId!==handle.dataset.dragItem)return;
+      drag.x=e.clientX;drag.y=e.clientY;
       if(!drag.active&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<5)return;
-      drag.active=true;handle.closest('.item-row').classList.add('item-dragging');
-      document.querySelectorAll('.item-row').forEach(row=>row.classList.remove('item-drop-before','item-drop-after'));
-      const row=document.elementFromPoint(e.clientX,e.clientY)?.closest('.item-row');
-      drag.targetId=row&&row.closest('.board-group')===handle.closest('.board-group')&&row.dataset.id!==drag.sourceId?row.dataset.id:'';
-      if(drag.targetId){const rect=row.getBoundingClientRect();drag.after=e.clientY>rect.top+rect.height/2;row.classList.add(drag.after?'item-drop-after':'item-drop-before');}
+      if(!drag.active){drag.active=true;handle.closest('.item-row').classList.add('item-dragging');const scroll=()=>{if(itemPointerDrag!==drag)return;const pane=$('.board-scroll'),bounds=pane.getBoundingClientRect();if(drag.y>bounds.top&&drag.y<bounds.bottom){const speed=drag.y<bounds.top+55?-14:drag.y>bounds.bottom-55?14:0;if(speed){pane.scrollTop+=speed;updateTarget(drag,drag.x,drag.y);}}drag.frame=requestAnimationFrame(scroll);};drag.frame=requestAnimationFrame(scroll);}
+      updateTarget(drag,e.clientX,e.clientY);
     };
-    const finish=commit=>{const drag=itemPointerDrag;itemPointerDrag=null;document.querySelectorAll('.item-row').forEach(row=>row.classList.remove('item-dragging','item-drop-before','item-drop-after'));if(commit&&drag?.active&&drag.targetId)moveItemTo(drag.sourceId,drag.targetId,drag.after);};
+    const finish=commit=>{const drag=itemPointerDrag;itemPointerDrag=null;if(drag?.frame)cancelAnimationFrame(drag.frame);document.querySelectorAll('.item-row').forEach(row=>row.classList.remove('item-dragging'));clearTargets();if(commit&&drag?.active&&(drag.targetId||drag.targetCategory!==undefined))moveItemTo(drag.sourceId,drag.targetId,drag.after,drag.targetCategory);};
     handle.onpointerup=()=>finish(true);handle.onpointercancel=()=>finish(false);
     handle.onkeydown=e=>{if(!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();const row=handle.closest('.item-row'),rows=[...row.closest('.board-group').querySelectorAll('.item-row')],index=rows.indexOf(row),target=rows[index+(e.key==='ArrowUp'?-1:1)];if(target)moveItemTo(row.dataset.id,target.dataset.id,e.key==='ArrowDown');};
   });
