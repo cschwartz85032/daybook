@@ -309,7 +309,15 @@ function automationSentence(rule){
   const destination=(data.groups||[]).find(g=>g.id===config.group_id)?.name||'Items';
   return `On day ${rule.trigger_value||'1'} of each month, create ${config.title||'an item'} in ${destination}.`;
 }
-function openAutomations(boardId=listById(view)?.id||data.lists.find(l=>!l.deleted_at)?.id){
+function automationBoardInView(){
+  if(listById(view))return view;
+  const content=$('#task-content'),viewport=content?.closest('.board-scroll')?.getBoundingClientRect();
+  const section=[...(content?.querySelectorAll('.board-group')||[])].find(element=>{const rect=element.getBoundingClientRect();return rect.bottom>(viewport?.top||0)+8&&rect.top<(viewport?.bottom||innerHeight);});
+  const group=section&&renderedGroups[Number(section.dataset.group)];
+  const boardId=group?.tasks[0]?.list_id||group?.defaults.list_id||renderedGroups[0]?.tasks[0]?.list_id||renderedGroups[0]?.defaults.list_id;
+  return listById(boardId)&&!listById(boardId).deleted_at?boardId:data.lists.find(l=>!l.deleted_at)?.id;
+}
+function openAutomations(boardId=automationBoardInView()){
   const board=listById(boardId);if(!board)return;
   const rules=(data.automations||[]).filter(r=>r.list_id===boardId),events=(data.automation_events||[]).filter(e=>rules.some(r=>r.id===e.rule_id)).slice(0,15);
   const recurring=data.tasks.filter(t=>t.list_id===boardId&&t.repeat!=='none'&&!t.deleted_at&&!t.archived_at);
