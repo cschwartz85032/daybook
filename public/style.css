@@ -155,11 +155,12 @@ dialog{border:0;border-radius:9px;box-shadow:0 15px 65px #0003;padding:0;color:i
 .automation-subtitle{font-size:12px;color:#676879;margin:5px 0 0}
 .automation-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px}
 .automation-section-head h3{font-size:15px;font-weight:600;margin:0}
+.automation-count{color:#8b8d9d;font-size:12px;font-weight:400;margin-left:3px}
 .automation-section-head .primary{display:inline-flex;align-items:center;gap:6px}
 .automation-section-head .primary svg{width:15px;height:15px}
 .automation-rule{display:flex;align-items:center;gap:10px;padding:11px 10px;border:1px solid #e4e7ee;border-radius:6px;margin:7px 0;background:#fff}
 .automation-rule>div{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
-.automation-rule strong{font-size:13px;font-weight:500;line-height:1.4}
+.automation-rule strong{font-size:13px;font-weight:500;line-height:1.45}
 .automation-rule small{color:#858693;font-size:11px}
 .automation-rule .secondary{padding:5px 9px;font-size:12px}
 .automation-state{width:8px;height:8px;flex:none;border-radius:50%;background:#a6a9b4}
@@ -167,3 +168,33 @@ dialog{border:0;border-radius:9px;box-shadow:0 15px 65px #0003;padding:0;color:i
 .automation-event{display:flex;justify-content:space-between;gap:15px;border-bottom:1px solid #eceef3;padding:9px 0;font-size:12px}
 .automation-event time{color:#858693;white-space:nowrap}
 .automation-enabled{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px}
+.automation-form-heading{display:flex;align-items:center;gap:11px;margin:4px 0 13px}
+.automation-form-heading:not(:first-child){margin-top:26px}
+.automation-form-heading h3{font-size:15px;font-weight:600;margin:0 0 3px}
+.automation-form-heading p{font-size:12px;color:#676879;margin:0}
+.automation-step{display:grid;place-items:center;width:26px;height:26px;flex:none;border-radius:50%;background:#e8f3ff;color:#0073ea;font-size:13px;font-weight:700}
+.automation-recipe-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.automation-recipe-choice{display:flex;align-items:flex-start;gap:10px;min-height:77px;padding:13px;border:1px solid #dfe2eb;border-radius:7px;background:#fff;text-align:left;cursor:pointer}
+.automation-recipe-choice:hover{border-color:#9dc9f8;background:#f8fbff}
+.automation-recipe-choice.selected{border:2px solid #0073ea;padding:12px;background:#eef6ff}
+.automation-recipe-choice>svg{width:20px;height:20px;flex:none;color:#0073ea}
+.automation-recipe-choice span{display:flex;flex-direction:column;gap:4px}
+.automation-recipe-choice strong{font-size:13px;font-weight:600;color:#323338}
+.automation-recipe-choice small{font-size:11px;line-height:1.4;color:#676879}
+.automation-config{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.automation-config-card{padding:15px;border:1px solid #e1e5ef;border-radius:7px;background:#fbfcff;min-height:125px}
+.automation-config-card h4{font-size:13px;font-weight:500;margin:0 0 15px}
+.automation-config-card h4 span{font-weight:700;color:#0073ea}
+.automation-config-card .field{margin-bottom:9px}
+.automation-config-card textarea{min-height:79px}
+.automation-static-trigger{font-size:14px;line-height:1.5;margin:0;padding:9px 0}
+.automation-field-note{font-size:11px;line-height:1.5;color:#676879;margin:7px 0 0}
+.automation-field-note.warning{color:#ad4d00}
+.automation-preview{margin:17px 0;padding:14px 16px;border-radius:7px;background:#f5f0fc;border-left:4px solid #a25ddc}
+.automation-preview strong{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#7144a1}
+.automation-preview p{font-size:14px;line-height:1.5;margin:6px 0 0}
+.automation-advanced{border-top:1px solid #e6e8ef;padding-top:12px}
+.automation-advanced summary{font-size:13px;color:#4d4e59;cursor:pointer;margin-bottom:10px}
+.automation-advanced .field{margin:5px 0}
+.automation-advanced p{font-size:11px;color:#858693;margin:0 0 10px}
+@media(max-width:650px){.automation-recipe-grid,.automation-config{grid-template-columns:1fr}.automation-recipe-choice{min-height:auto}}
