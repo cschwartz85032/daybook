@@ -5,7 +5,8 @@ Daybook is a self-hosted board workspace for projects, routines, and everyday ta
 ## Features
 
 - Main Table, Kanban, and Calendar views for boards and items.
-- Colored groups and status labels; inline editing; drag-to-reorder groups; board and group menus.
+- Colored groups and status labels; inline editing; drag-to-reorder groups and items, including moves between groups; board and group menus.
+- Board-specific Text, Numbers, Date, and Status columns with editable item values, header menus, and saved column settings.
 - Subitems with their own status, assignee, date, updates, and attachments.
 - Item and subitem updates with photos and documents (5 MB per file).
 - Board automations for status-driven moves, completion dates, update posts, due-date reminders, and monthly item creation. Due-date reminders appear in the automation run log; email and push delivery are not included.
