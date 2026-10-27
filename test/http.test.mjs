@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../server.mjs';
 import { setAccount } from '../scripts/account.mjs';
+import { openStore } from '../lib/store.mjs';
 
 test('private API, sign in, CSRF, CRUD, export, sign out, and restart sessions', async () => {
   const dir = mkdtempSync(join(tmpdir(),'daybook-http-')), dbPath = join(dir,'test.sqlite');
@@ -69,6 +70,25 @@ test('private API, sign in, CSRF, CRUD, export, sign out, and restart sessions',
       assert.equal((await fetch(url+'data',{headers})).status,401);
     } finally { await new Promise(r=>restarted.server.close(r)); restarted.store.db.close(); }
   } finally { if (app.server.listening) await new Promise(r=>app.server.close(r)); if (app.store.db.isOpen) app.store.db.close(); rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('startup removes expired trash attachments from disk',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'daybook-expired-assets-')),dbPath=join(dir,'test.sqlite'),uploadRoot=join(dir,'upload-assets');
+  let store=openStore(dbPath);
+  try{
+    const board=store.addList({name:'Old attachments'}),task=store.insert({title:'Old item',list_id:board.id});
+    const asset={id:'local-44444444-4444-4444-8444-444444444444',name:'old.txt',file_extension:'txt'};
+    store.addUpdate(task.id,{assets:[asset]},'Owner');
+    mkdirSync(uploadRoot);writeFileSync(join(uploadRoot,`${asset.id}.txt`),'expired');
+    store.run('UPDATE tasks SET deleted_at=? WHERE id=?','2020-01-01T00:00:00.000Z',task.id);
+    store.db.close();store=null;
+    const app=createApp({dbPath,port:0});
+    try{
+      assert.equal(app.store.findTask(task.id),null);
+      assert.equal(app.store.snapshot().updates.length,0);
+      assert.equal(existsSync(join(uploadRoot,`${asset.id}.txt`)),false);
+    }finally{app.store.db.close();}
+  }finally{if(store?.db.isOpen)store.db.close();rmSync(dir,{recursive:true,force:true});}
 });
 
 test('production refuses plain HTTP configuration', () => {

@@ -10,7 +10,7 @@ Daybook is a self-hosted board workspace for projects, routines, and everyday ta
 - Subitems with their own status, assignee, date, updates, and attachments.
 - Item and subitem updates with photos and documents (5 MB per file).
 - Board automations for status-driven moves, completion dates, update posts, due-date reminders, and monthly item creation. Due-date reminders appear in the automation run log; email and push delivery are not included.
-- Search, filters, sorting, favorites, bulk actions, recurring items, and recoverable trash.
+- Search, filters, sorting, favorites, bulk actions, recurring items, and 30-day recoverable trash. Deleted boards and items are permanently removed after 30 days, including their updates and attachments.
 - CSV/JSON import and JSON export, including source-ID deduplication for repeat imports.
 - Single-owner authentication, expiring sessions, CSRF protection, SQLite persistence, and online backups.
 

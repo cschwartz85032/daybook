@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.1 — October 27, 2026
+
+- Permanently remove boards and items after they have been in Trash for more than 30 days. Related subitems, updates, automations, and unused attachments are removed with them. Cleanup runs at startup, hourly, and after an import.
+- Show the 30-day recovery period in Trash and when moving a board there. Preserve board deletion dates when restoring a JSON backup.
+
+Existing installations can update with `git pull` followed by `./install.sh --upgrade`.
+
 ## v1.1.0 — October 26, 2026
 
 - Add board-specific Text, Numbers, Date, and Status columns with editable values. Rename, change type, hide, or delete added columns from the column header menu. Existing values are checked before a type change, and column deletion requires confirmation.

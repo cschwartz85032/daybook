@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -18,6 +18,16 @@ export function createApp(options = {}) {
   const assetRoot = existsSync(resolve(root, 'monday-assets')) ? resolve(root, 'monday-assets') : resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'monday-assets');
   const uploadRoot = resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'upload-assets');
   mkdirSync(uploadRoot,{recursive:true,mode:0o700});
+  function purgeExpiredTrash() {
+    const result=store.purgeExpiredTrash();
+    for(const asset of result.assets){
+      try{unlinkSync(resolve(asset.startsWith('local-')?uploadRoot:assetRoot,asset));}
+      catch(error){if(error.code!=='ENOENT')console.error('Could not remove expired attachment:',asset,error.message);}
+    }
+    if(result.boards||result.items)console.log(`Expired trash removed: ${result.boards} boards, ${result.items} items, ${result.updates} updates.`);
+    return result;
+  }
+  purgeExpiredTrash();
   const uploadTypes={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',gif:'image/gif',webp:'image/webp',pdf:'application/pdf',doc:'application/msword',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xls:'application/vnd.ms-excel',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',ppt:'application/vnd.ms-powerpoint',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',txt:'text/plain',csv:'text/csv'};
   const cookieName = 'daybook_session';
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=${base || '/'}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${publicUrl.protocol === 'https:' ? '; Secure' : ''}`;
@@ -146,7 +156,7 @@ export function createApp(options = {}) {
       if (path === '/api/automations' && method === 'POST') { send(res, 201, store.addAutomation(await body(req))); return; }
       const automationMatch=path.match(/^\/api\/automations\/([a-z0-9-]+)$/i);
       if(automationMatch&&method==='PATCH'){send(res,200,store.updateAutomation(automationMatch[1],await body(req)));return;}
-      if (path === '/api/import' && method === 'POST') { send(res, 200, store.importData(await body(req))); return; }
+      if (path === '/api/import' && method === 'POST') { const result=store.importData(await body(req));purgeExpiredTrash();send(res, 200, result); return; }
       throw new InputError('Not found.', 404);
     } catch (e) {
       if (!(e instanceof InputError)) console.error('Request failed:', e.code || e.name);
@@ -155,12 +165,12 @@ export function createApp(options = {}) {
     }
   });
   server.requestTimeout = 30000; server.headersTimeout = 15000; server.keepAliveTimeout = 5000;
-  return { server, store, publicUrl, port };
+  return { server, store, publicUrl, port, purgeExpiredTrash };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const app = createApp();
   app.server.listen(app.port, process.env.HOST || '127.0.0.1', () => console.log(`Daybook listening at ${app.publicUrl.href}`));
-  const automationTimer=setInterval(()=>{try{app.store.runScheduledAutomations();}catch(error){console.error('Scheduled automation failed:',error.message);}},60*60*1000);
+  const automationTimer=setInterval(()=>{try{app.store.runScheduledAutomations();app.purgeExpiredTrash();}catch(error){console.error('Scheduled maintenance failed:',error.message);}},60*60*1000);
   automationTimer.unref();
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => app.server.close(() => { app.store.db.close(); process.exit(0); }));
 }

@@ -56,6 +56,53 @@ test('boards move to trash and restore without changing their items',()=>{
   }finally{store.db.close();}
 });
 
+test('expired trash permanently removes boards, items, updates, and dependent records after 30 days',()=>{
+  const s=openStore(':memory:'),now=new Date('2026-10-27T12:00:00.000Z');
+  try{
+    const oldBoard=s.addList({name:'Expired board'}),recentBoard=s.addList({name:'Recoverable board'}),activeBoard=s.addList({name:'Active board'});
+    const oldGroup=s.addGroup({list_id:oldBoard.id,name:'Old group'});
+    const oldRule=s.addAutomation({list_id:oldBoard.id,name:'Old reminder',trigger_type:'due_date_arrives',action_type:'notify',action_value:'Reminder',enabled:true});
+    const boardItem=s.insert({title:'Board item',list_id:oldBoard.id,checklist:[{id:'old-child',title:'Subitem',done:false}]});
+    const boardUpdate=s.addUpdate(boardItem.id,{assets:[{id:'local-11111111-1111-4111-8111-111111111111',name:'board.txt',file_extension:'txt'}]},'Owner');
+    s.addSubitemUpdate(boardItem.id,'old-child',{text_body:'Subitem note'},'Owner');
+    const oldItem=s.insert({title:'Expired item',list_id:activeBoard.id});
+    const oldUpdate=s.addUpdate(oldItem.id,{assets:[{id:'local-22222222-2222-4222-8222-222222222222',name:'item.txt',file_extension:'txt'}]},'Owner');
+    const boundary=s.insert({title:'Exactly 30 days',list_id:activeBoard.id});
+    const recent=s.insert({title:'Recent trash',list_id:recentBoard.id});
+    s.run('UPDATE lists SET deleted_at=? WHERE id=?','2026-09-26T11:59:59.999Z',oldBoard.id);
+    s.run('UPDATE lists SET deleted_at=? WHERE id=?','2026-10-26T12:00:00.000Z',recentBoard.id);
+    s.run('UPDATE tasks SET deleted_at=? WHERE id=?','2026-09-26T11:59:59.999Z',oldItem.id);
+    s.run('UPDATE tasks SET deleted_at=? WHERE id=?','2026-09-27T12:00:00.000Z',boundary.id);
+    s.run('UPDATE tasks SET deleted_at=? WHERE id=?','2026-10-26T12:00:00.000Z',recent.id);
+    s.run('INSERT INTO automation_events(id,rule_id,task_id,event_key,description,created_at) VALUES(?,?,?,?,?,?)','old-event',oldRule.id,boardItem.id,'old-key','old event',now.toISOString());
+    assert.deepEqual(s.purgeExpiredTrash(now),{boards:1,items:2,updates:3,assets:['local-11111111-1111-4111-8111-111111111111.txt','local-22222222-2222-4222-8222-222222222222.txt']});
+    const snapshot=s.snapshot();
+    assert.ok(!snapshot.lists.some(board=>board.id===oldBoard.id));
+    assert.ok(snapshot.lists.some(board=>board.id===recentBoard.id));
+    assert.ok(!snapshot.tasks.some(task=>task.id===boardItem.id||task.id===oldItem.id));
+    assert.ok(snapshot.tasks.some(task=>task.id===boundary.id));
+    assert.ok(snapshot.tasks.some(task=>task.id===recent.id));
+    assert.ok(!snapshot.groups.some(group=>group.id===oldGroup.id));
+    assert.ok(!snapshot.automations.some(rule=>rule.id===oldRule.id));
+    assert.ok(!snapshot.automation_events.some(event=>event.id==='old-event'));
+    assert.ok(!snapshot.updates.some(update=>update.id===boardUpdate.id||update.id===oldUpdate.id));
+    assert.deepEqual(s.purgeExpiredTrash(now),{boards:0,items:0,updates:0,assets:[]});
+  }finally{s.db.close();}
+});
+
+test('trash cleanup retains updates and attachments still used by a surviving item',()=>{
+  const s=openStore(':memory:');
+  try{
+    const board=s.addList({name:'Shared updates'}),old=s.insert({title:'Old',list_id:board.id,source_id:'monday:shared'}),current=s.insert({title:'Current',list_id:board.id,checklist:[{id:'shared',title:'Shared subitem',done:false,source_id:'monday:shared'}]});
+    const update=s.addUpdate(old.id,{text_body:'Keep with subitem',assets:[{id:'local-33333333-3333-4333-8333-333333333333',name:'shared.txt',file_extension:'txt'}]},'Owner');
+    s.run('UPDATE tasks SET deleted_at=? WHERE id=?','2026-09-01T00:00:00.000Z',old.id);
+    const result=s.purgeExpiredTrash(new Date('2026-10-27T00:00:00.000Z'));
+    assert.deepEqual(result,{boards:0,items:1,updates:0,assets:[]});
+    assert.equal(s.snapshot().updates.find(row=>row.id===update.id).text_body,'Keep with subitem');
+    assert.ok(s.findTask(current.id));
+  }finally{s.db.close();}
+});
+
 test('group reordering persists within its board',()=>{
   const store=openStore(':memory:');
   try{
@@ -397,4 +444,17 @@ test('backup JSON restores completion, trash and recurring relationships into a 
     assert.ok(imported.completed_at);
     assert.ok(restored.findTask(imported.next_task_id).deleted_at);
   } finally {original.db.close();restored.db.close();}
+});
+
+test('backup import preserves a newly restored board’s trash date',()=>{
+  const source=openStore(':memory:'),target=openStore(':memory:');
+  try{
+    const board=source.addList({name:'Deleted project'}),item=source.insert({title:'Keep until expiry',list_id:board.id});
+    source.run('UPDATE lists SET deleted_at=? WHERE id=?','2026-09-01T00:00:00.000Z',board.id);
+    target.importData(source.snapshot());
+    const imported=target.snapshot().lists.find(row=>row.name==='Deleted project');
+    assert.equal(imported.deleted_at,'2026-09-01T00:00:00.000Z');
+    assert.ok(target.snapshot().tasks.some(row=>row.title===item.title&&row.list_id===imported.id));
+    assert.equal(target.purgeExpiredTrash(new Date('2026-10-27T00:00:00.000Z')).boards,1);
+  }finally{source.db.close();target.db.close();}
 });
