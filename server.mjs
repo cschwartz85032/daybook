@@ -135,6 +135,8 @@ export function createApp(options = {}) {
       if (path === '/api/tasks' && method === 'POST') { send(res, 201, store.insert(await body(req))); return; }
       const taskUpdates=path.match(/^\/api\/tasks\/([a-z0-9-]+)\/updates$/i);
       if(taskUpdates&&method==='POST'){const input=await body(req);if(input.assets?.some(a=>!a||!/^local-[a-f0-9-]{36}$/.test(a.id)||!/^[a-z0-9]{1,8}$/.test(a.file_extension)||!existsSync(resolve(uploadRoot,`${a.id}.${a.file_extension}`))))throw new InputError('Upload the attachments first.');send(res,201,store.addUpdate(taskUpdates[1],input,auth.username));return;}
+      const addSubitem=path.match(/^\/api\/tasks\/([a-z0-9-]+)\/subitems$/i);
+      if(addSubitem&&method==='POST'){send(res,201,store.addSubitem(addSubitem[1],await body(req)));return;}
       const subitemUpdates=path.match(/^\/api\/tasks\/([a-z0-9-]+)\/subitems\/([a-z0-9-]+)\/updates$/i);
       if(subitemUpdates&&method==='POST'){const input=await body(req);if(input.assets?.some(a=>!a||!/^local-[a-f0-9-]{36}$/.test(a.id)||!/^[a-z0-9]{1,8}$/.test(a.file_extension)||!existsSync(resolve(uploadRoot,`${a.id}.${a.file_extension}`))))throw new InputError('Upload the attachments first.');send(res,201,store.addSubitemUpdate(subitemUpdates[1],subitemUpdates[2],input,auth.username));return;}
       const below = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/below$/i);

@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.2 — October 27, 2026
+
+- Save a typed subitem when the add field loses focus, including when starting the next subitem.
+- Append new subitems on the server so rapid additions cannot replace an earlier one. Keep both entries visible and saved after a page reload.
+
+Existing installations can update with `git pull` followed by `./install.sh --upgrade`.
+
 ## v1.1.1 — October 27, 2026
 
 - Permanently remove boards and items after they have been in Trash for more than 30 days. Related subitems, updates, automations, and unused attachments are removed with them. Cleanup runs at startup, hourly, and after an import.

@@ -54,6 +54,10 @@ test('private API, sign in, CSRF, CRUD, export, sign out, and restart sessions',
     const parent=await (await call('/api/tasks','POST',{title:'Parent',list_id:data.lists[0].id,checklist:[{id:'child-one',title:'Child',done:false}]})).json();
     const childPost=await call(`/api/tasks/${parent.id}/subitems/child-one/updates`,'POST',{text_body:'Child update',assets:[asset]});assert.equal(childPost.status,201);
     assert.equal((await childPost.json()).item_source_id,'daybook:child-one');
+    const added=await Promise.all(['First added','Second added'].map(title=>call(`/api/tasks/${parent.id}/subitems`,'POST',{title})));
+    assert.deepEqual(added.map(response=>response.status),[201,201]);
+    assert.deepEqual(app.store.findTask(parent.id).checklist.map(child=>child.title),['Child','First added','Second added']);
+    assert.equal((await call(`/api/tasks/${parent.id}/subitems`,'POST',{title:'  '})).status,400);
     assert.equal((await call(`/api/tasks/${parent.id}/subitems/missing/updates`,'POST',{text_body:'No child'})).status,404);
     assert.equal((await call('/api/import','POST',{tasks:[{title:'Bad date',list_id:data.lists[0].id,due_date:'2026-02-30'}]})).status,400);
     const badJson = await fetch(base+'/api/tasks',{method:'POST',headers,body:'['}); assert.equal(badJson.status,400);
@@ -64,7 +68,9 @@ test('private API, sign in, CSRF, CRUD, export, sign out, and restart sessions',
     const url = `http://127.0.0.1:${restarted.server.address().port}/tasks/api/`;
     try {
       assert.equal((await fetch(url+'session',{headers})).status,200);
-    assert.equal((await (await fetch(url+'data',{headers})).json()).updates.some(u=>u.text_body==='Child update'),true);
+    const reloaded=await (await fetch(url+'data',{headers})).json();
+    assert.equal(reloaded.updates.some(u=>u.text_body==='Child update'),true);
+    assert.deepEqual(reloaded.tasks.find(task=>task.id===parent.id).checklist.map(child=>child.title),['Child','First added','Second added']);
       assert.equal((await fetch(url+`assets/${asset.id}.txt`,{headers})).status,200);
       assert.equal((await fetch(url+'logout',{method:'POST',headers,body:'{}'})).status,200);
       assert.equal((await fetch(url+'data',{headers})).status,401);

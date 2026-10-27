@@ -165,8 +165,15 @@ function taskRow(t,cols) {
   return `<tr class="item-row ${selectedIds.has(t.id)?'selected':''}" data-id="${t.id}"><td class="selection-cell">${canReorder?`<button class="icon-button item-drag-handle" type="button" data-drag-item="${t.id}" aria-label="Drag ${esc(t.title)} to reorder" title="Drag to reorder; arrow keys move one row">${icon('grip')}</button>`:''}<input type="checkbox" data-select-item="${t.id}" aria-label="Select ${esc(t.title)}" ${selectedIds.has(t.id)?'checked':''}></td><td class="item-cell"><div class="item-title-wrap">${t.checklist.length?`<button class="icon-button subitem-toggle ${expandedItems.has(t.id)?'expanded':''}" data-action="expand-item" aria-label="${expandedItems.has(t.id)?'Collapse':'Expand'} subitems for ${esc(t.title)}" aria-expanded="${expandedItems.has(t.id)}">${icon('chevron')}</button>`:'<span class="item-indent"></span>'}<input class="cell-input item-title" data-field="title" value="${esc(t.title)}" maxlength="500" aria-label="Item name: ${esc(t.title)}" ${disabled}>${t.checklist.length?`<span class="subitem-count">${t.checklist.length}</span>`:''}<button class="icon-button subitem-quick-add" data-action="quick-add-subitem" aria-label="Add subitem to ${esc(t.title)}" ${disabled}>${icon('plus')}</button><button class="icon-button item-updates ${t.notes||updatesFor(updateKeyFor(t)).length?'has-notes':''}" data-action="show-updates" aria-label="Open updates for ${esc(t.title)} (${updatesFor(updateKeyFor(t)).length})">${icon('message')}${updatesFor(updateKeyFor(t)).length?`<span class="update-count">${updatesFor(updateKeyFor(t)).length}</span>`:''}</button></div></td>${cols.map(k=>`<td class="column-${k}">${cells[k]??customColumnCell(t,k,disabled)}</td>`).join('')}<td><button class="icon-button row-more" data-action="${t.deleted_at?'restore':t.archived_at?'restore-archive':'item-menu'}" aria-label="${t.deleted_at||t.archived_at?'Restore':'Options for'} ${esc(t.title)}">${icon(t.deleted_at||t.archived_at?'repeat':'more')}</button></td></tr>${subitemPanel(t,cols)}`;
 }
 async function saveSubitem(task,checklist,focusNext=false){
-  try {const result=await api(`tasks/${task.id}`,'PATCH',{checklist,version:task.version});data.tasks=data.tasks.map(t=>t.id===task.id?result:t);renderTasks();if(focusNext)document.querySelector(`.subitem-add[data-id="${task.id}"] input`)?.focus();return result;}
+  try {const result=await api(`tasks/${task.id}`,'PATCH',{checklist,version:task.version});data.tasks=data.tasks.map(t=>t.id===task.id&&result.version>=t.version?result:t);renderTasks();if(focusNext)document.querySelector(`.subitem-add[data-id="${task.id}"] input`)?.focus();return result;}
   catch(e){if(e.status===409)await refresh();handleError(e);throw e;}
+}
+async function createSubitem(taskId,title,focusNext=false){
+  const result=await api(`tasks/${taskId}/subitems`,'POST',{title});
+  data.tasks=data.tasks.map(t=>t.id===taskId&&result.version>=t.version?result:t);
+  renderTasks();
+  if(focusNext)document.querySelector(`.subitem-add[data-id="${taskId}"] input`)?.focus();
+  return result;
 }
 function orderedBoardGroups(listId){return data.groups.filter(g=>g.list_id===listId).sort((a,b)=>a.position-b.position||a.name.localeCompare(b.name));}
 async function moveGroupTo(sourceId,targetId,after){
@@ -235,7 +242,17 @@ function bindBoardInputs(){
   });
   document.querySelectorAll('[data-select-item]').forEach(input=>input.onchange=()=>{input.checked?selectedIds.add(input.dataset.selectItem):selectedIds.delete(input.dataset.selectItem);renderTasks();});
   document.querySelectorAll('[data-select-group]').forEach(input=>input.onchange=()=>{renderedGroups[input.dataset.selectGroup].tasks.forEach(t=>input.checked?selectedIds.add(t.id):selectedIds.delete(t.id));renderTasks();});
-  document.querySelectorAll('.subitem-add').forEach(form=>form.onsubmit=async e=>{e.preventDefault();const task=data.tasks.find(t=>t.id===form.dataset.id),input=$('input[name=title]',form),title=input.value.trim();if(!title)return;input.disabled=true;try{await saveSubitem(task,[...task.checklist,{id:crypto.randomUUID(),title,done:false,status:'todo'}],true);}catch{input.disabled=false;}});
+  document.querySelectorAll('.subitem-add').forEach(form=>{
+    const input=$('input[name=title]',form);let saving=false;
+    const commit=async focusNext=>{
+      const title=input.value.trim();if(saving||!title)return;
+      saving=true;input.disabled=true;
+      try{await createSubitem(form.dataset.id,title,focusNext);}
+      catch(error){saving=false;input.disabled=false;handleError(error);}
+    };
+    form.onsubmit=e=>{e.preventDefault();commit(true);};
+    input.onblur=e=>{if(e.relatedTarget?.closest('.subitem-add')===form)return;commit(e.relatedTarget?.dataset.action==='quick-add-subitem');};
+  });
   document.querySelectorAll('[data-subitem]').forEach(input=>input.onchange=()=>{const task=data.tasks.find(t=>t.id===input.closest('[data-id]').dataset.id),child=task.checklist[Number(input.dataset.subitem)],key=subitemSelectionKey(task,child);input.checked?selectedSubitems.add(key):selectedSubitems.delete(key);renderTasks();});
   document.querySelectorAll('[data-select-all-subitems]').forEach(input=>{const task=data.tasks.find(t=>t.id===input.dataset.selectAllSubitems),children=task.checklist.filter(c=>!c.archived_at),count=children.filter(c=>selectedSubitems.has(subitemSelectionKey(task,c))).length;input.indeterminate=count>0&&count<children.length;input.onchange=()=>{children.forEach(c=>input.checked?selectedSubitems.add(subitemSelectionKey(task,c)):selectedSubitems.delete(subitemSelectionKey(task,c)));renderTasks();};});
   document.querySelectorAll('[data-subfield]').forEach(input=>{input.onchange=async()=>{const task=data.tasks.find(t=>t.id===input.closest('[data-id]').dataset.id),index=Number(input.closest('[data-subindex]').dataset.subindex),field=input.dataset.subfield,value=input.value;if(field==='title'&&!value.trim()){input.value=task.checklist[index].title;return;}if(value===task.checklist[index][field]&&field!=='status')return;input.disabled=true;try{await saveSubitem(task,task.checklist.map((c,i)=>i===index?{...c,[field]:field==='status'?(value||'todo'):value,...(field==='status'?{done:value==='done'||subitemStatusSettings(task.list_id)[value]?.done===true,status_touched:true,status_blank:!value}:{})}:c));}catch{input.disabled=false;}};if(input.tagName==='INPUT'&&input.type==='text')input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();input.blur();}else if(e.key==='Escape'){const task=data.tasks.find(t=>t.id===input.closest('[data-id]').dataset.id),index=Number(input.closest('[data-subindex]').dataset.subindex);input.value=task.checklist[index][input.dataset.subfield]||'';input.blur();}};});
