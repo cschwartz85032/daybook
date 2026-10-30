@@ -127,6 +127,14 @@ function renderTasks() {
   $('#task-content').querySelectorAll('.board-table thead th').forEach(header=>{const name=$('.editable-column',header);if(!name)return;header.classList.add('column-heading');header.insertAdjacentHTML('beforeend',`<button class="icon-button column-more" data-action="column-options" data-list-id="${name.dataset.listId}" data-column="${name.dataset.column}" aria-label="Options for ${esc(name.textContent)} column" title="Column options">${icon('more')}</button>`);});
   renderSelection(); bindBoardInputs();
 }
+function revealAddedItem(task){
+  if(layout!=='table')return;
+  const group=renderedGroups.find(group=>group.tasks.some(item=>item.id===task.id));
+  if(!group)return;
+  const key=view+'|'+group.key,index=group.tasks.findIndex(item=>item.id===task.id),limit=groupLimits.get(key)||100;
+  if(collapsedGroups.has(key)||index>=limit){collapsedGroups.delete(key);groupLimits.set(key,Math.max(limit,index+1));renderTasks();}
+  document.querySelector(`.item-row[data-id="${task.id}"]`)?.scrollIntoView({block:'nearest'});
+}
 function shownColumns(listId){return [...Object.keys(columns),...customColumnsFor(listId).map(column=>column.id)].filter(k=>!hiddenColumns.has(k));}
 function statusBar(tasks){return `<div class="status-summary" aria-label="${tasks.filter(t=>t.status==='done').length} of ${tasks.length} items done">${[...new Set(tasks.map(t=>t.status))].map(id=>{const matching=tasks.filter(t=>t.status===id),n=matching.length;return `<span style="width:${n/tasks.length*100}%;background:${statusColorFor(matching[0].list_id,id)}" title="${esc(statusLabelFor(matching[0].list_id,id))}: ${n}"></span>`;}).join('')}</div>`;}
 function groupTable(g,index) {
@@ -231,7 +239,7 @@ function bindBoardInputs(){
     const finish=commit=>{const drag=groupPointerDrag;groupPointerDrag=null;document.querySelectorAll('.board-group').forEach(section=>section.classList.remove('group-dragging','group-drop-before','group-drop-after'));if(commit&&drag?.active&&drag.targetId)moveGroupTo(drag.sourceId,drag.targetId,drag.after);};
     handle.onpointerup=()=>finish(true);handle.onpointercancel=()=>finish(false);
   });
-  document.querySelectorAll('.group-add').forEach(form=>form.onsubmit=async e=>{e.preventDefault();const group=renderedGroups[form.dataset.group],input=$('input',form),title=input.value.trim();if(!title)return;input.disabled=true;try{await api('tasks','POST',{...group.defaults,title,...(view==='today'?{due_date:data.today}:{})});await refresh();notify('Item added.');const next=[...document.querySelectorAll('.group-add')].find(f=>renderedGroups[f.dataset.group]?.key===group.key);$('input',next||document)?.focus();}catch(err){handleError(err);input.disabled=false;}});
+  document.querySelectorAll('.group-add').forEach(form=>form.onsubmit=async e=>{e.preventDefault();const group=renderedGroups[form.dataset.group],input=$('input',form),title=input.value.trim();if(!title)return;input.disabled=true;try{const added=await api('tasks','POST',{...group.defaults,title,...(view==='today'?{due_date:data.today}:{})});await refresh();revealAddedItem(added);notify('Item added.');const next=[...document.querySelectorAll('.group-add')].find(f=>renderedGroups[f.dataset.group]?.key===group.key);$('input',next||document)?.focus();}catch(err){handleError(err);input.disabled=false;}});
   document.querySelectorAll('[data-field]').forEach(input=>{
     input.onchange=async()=>{const task=data.tasks.find(t=>t.id===input.closest('[data-id]').dataset.id),value=input.value;if(value===task[input.dataset.field])return;if(input.dataset.field==='title'&&!value.trim()){input.value=task.title;return;}input.disabled=true;try{await changeTask(task,{[input.dataset.field]:value});}catch(e){input.disabled=false;input.value=task[input.dataset.field];handleError(e);}};
     input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();input.blur();}if(e.key==='Escape'){input.value=data.tasks.find(t=>t.id===input.closest('[data-id]').dataset.id)[input.dataset.field];input.blur();}};

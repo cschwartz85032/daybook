@@ -138,19 +138,21 @@ test('item order persists within a group and rejects stale or cross-board moves'
     const list_id=s.snapshot().lists[0].id;
     const a=s.insert({title:'A',list_id,category:'Today'}),b=s.insert({title:'B',list_id,category:'Today'}),c=s.insert({title:'C',list_id,category:'Today'});
     const titles=()=>s.snapshot().tasks.filter(t=>t.list_id===list_id&&t.category==='Today').sort((x,y)=>x.order_position-y.order_position).map(t=>t.title);
-    assert.deepEqual(titles(),['C','B','A']);
+    assert.deepEqual(titles(),['A','B','C']);
     s.reorderTask(a.id,{version:a.version,target_id:c.id,after:false});
-    assert.deepEqual(titles(),['A','C','B']);
+    assert.deepEqual(titles(),['B','A','C']);
     assert.throws(()=>s.reorderTask(a.id,{version:a.version,target_id:b.id,after:true}),{status:409});
     const other=s.insert({title:'Other',list_id,category:'Later'});
     const anotherBoard=s.addList({name:'Another board'});
     const external=s.insert({title:'External',list_id:anotherBoard.id});
     assert.throws(()=>s.reorderTask(b.id,{version:b.version,target_id:external.id,after:true}),{status:400});
     const below=s.createBelow(c.id);
-    assert.deepEqual(titles(),['A','C','New item','B']);
+    assert.deepEqual(titles(),['B','A','C','New item']);
     assert.equal(below.category,'Today');
+    s.insert({title:'Appended item',list_id,category:'Today'});
+    assert.deepEqual(titles(),['B','A','C','New item','Appended item']);
     s.db.close();s=openStore(path);
-    assert.deepEqual(titles(),['A','C','New item','B']);
+    assert.deepEqual(titles(),['B','A','C','New item','Appended item']);
     const moved=s.update(b.id,{version:s.findTask(b.id).version,category:'Later'});
     assert.equal(moved.order_position<s.findTask(other.id).order_position,true);
   }finally{s.db.close();rmSync(dir,{recursive:true,force:true});}
@@ -167,7 +169,7 @@ test('drag moves items between groups, including empty groups, and persists thei
     const titles=category=>s.snapshot().tasks.filter(t=>t.list_id===list_id&&t.category===category).sort((x,y)=>x.order_position-y.order_position).map(t=>t.title);
     const moved=s.reorderTask(a.id,{version:a.version,target_id:c.id,after:true});
     assert.equal(moved.category,'Later');
-    assert.deepEqual(titles('Later'),['D','C','A']);
+    assert.deepEqual(titles('Later'),['C','A','D']);
     assert.deepEqual(titles('Today'),['B']);
     assert.throws(()=>s.reorderTask(a.id,{version:a.version,category:'Empty',after:false}),{status:409});
     const empty=s.reorderTask(b.id,{version:b.version,category:'Empty',after:false});

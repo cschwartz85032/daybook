@@ -134,7 +134,7 @@ async function saveTask(event) {
   event.preventDefault(); const form = event.currentTarget, button = $('button[type=submit]',form); button.disabled = true;
   readChecklist();
   const value = { ...Object.fromEntries(new FormData(form)), checklist: editChecklist.filter(c => c.title.trim()) };
-  try { if (selected) await changeTask(selected,value); else { await api('tasks','POST',value); await refresh(); } editor.close(); notify(selected ? 'Item saved.' : 'Item added.'); }
+  try { let added; if (selected) await changeTask(selected,value); else { added=await api('tasks','POST',value); await refresh(); } editor.close(); if(added)revealAddedItem(added); notify(selected ? 'Item saved.' : 'Item added.'); }
   catch (e) { $('.form-error',form).textContent = e.message; button.disabled = false; }
 }
 function openListDialog() {

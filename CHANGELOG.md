@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.3 — October 30, 2026
+
+- Add new items at the bottom of their group in manual order, including items created from the board, CSV imports, recurring schedules, and automations. Reveal an item just added to a long group. Existing item order and explicit placement actions are preserved.
+
+Existing installations can update with `git pull` followed by `./install.sh --upgrade`.
+
 ## v1.1.2 — October 27, 2026
 
 - Save a typed subitem when the add field loses focus, including when starting the next subitem.
