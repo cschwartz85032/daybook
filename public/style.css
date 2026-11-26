@@ -205,3 +205,10 @@ dialog{border:0;border-radius:9px;box-shadow:0 15px 65px #0003;padding:0;color:i
 .automation-advanced .field{margin:5px 0}
 .automation-advanced p{font-size:11px;color:#858693;margin:0 0 10px}
 @media(max-width:650px){.automation-recipe-grid,.automation-config{grid-template-columns:1fr}.automation-recipe-choice{min-height:auto}}
+.share-controls,.invite-delivery,.share-owner{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.share-owner{justify-content:space-between}.sharing-check{display:inline-flex;align-items:center;gap:6px;min-height:40px}
+#share-dialog .field{margin:0}.share-controls select{padding:6px;border:1px solid #c8cad4;border-radius:4px;background:white}
+#board-invite,.share-person,.invite-ready{display:grid;gap:10px}#board-invite>.primary{justify-self:start}
+.share-owner,.share-person,.invite-ready{padding:14px 0;border-top:1px solid #e3e5ec}
+.share-person small,#share-dialog .dialog-head small{display:block;color:#606275}.share-people h3{margin:20px 0 12px}
+@media(max-width:600px){#share-dialog{margin:auto 0 0;max-width:100%;width:100%;border-radius:14px 14px 0 0;padding-bottom:env(safe-area-inset-bottom)}#share-dialog button{min-height:44px}}

@@ -1,3 +1,4 @@
+import { boardAccess } from './lib/sharing.mjs';
 import http from 'node:http';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -31,7 +32,7 @@ export function createApp(options = {}) {
   const uploadTypes={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',gif:'image/gif',webp:'image/webp',pdf:'application/pdf',doc:'application/msword',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xls:'application/vnd.ms-excel',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',ppt:'application/vnd.ms-powerpoint',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',txt:'text/plain',csv:'text/csv'};
   const cookieName = 'daybook_session';
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=${base || '/'}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${publicUrl.protocol === 'https:' ? '; Secure' : ''}`;
-  const staticFiles = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/workspace.js', ['workspace.js', 'text/javascript; charset=utf-8']], ['/style.css', ['style.css', 'text/css; charset=utf-8']], ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]].map(([url, [file, type]]) => [url, { body: readFileSync(resolve(root, 'public', file)), type }]));
+  const staticFiles = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/sharing.js',['sharing.js','text/javascript; charset=utf-8']], ['/workspace.js', ['workspace.js', 'text/javascript; charset=utf-8']], ['/style.css', ['style.css', 'text/css; charset=utf-8']], ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]].map(([url, [file, type]]) => [url, { body: readFileSync(resolve(root, 'public', file)), type }]));
   const maxBody = 8 * 1024 * 1024;
   async function body(req) {
     if (!(req.headers['content-type'] || '').startsWith('application/json')) throw new InputError('Send JSON.', 415);
@@ -46,6 +47,16 @@ export function createApp(options = {}) {
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error();
       return data;
     } catch { throw new InputError('Invalid JSON.'); }
+  }
+  function checkAttachments(assets, access, userId, boardId) {
+    if (assets === undefined) return;
+    if (!Array.isArray(assets) || assets.length > 10) throw new InputError('Invalid attachments.');
+    for (const a of assets) {
+      if (!a || !/^local-[a-f0-9-]{36}$/.test(a.id) || !/^[a-z0-9]{1,8}$/.test(a.file_extension)) throw new InputError('Invalid attachment.');
+      const file = a.id + '.' + a.file_extension;
+      const uploaded = store.get('SELECT 1 FROM uploads WHERE filename=? AND user_id=? AND list_id=?',file,userId,boardId);
+      if ((!uploaded && !access.asset(file,boardId)) || !existsSync(resolve(uploadRoot,file))) throw new InputError('Upload the attachments to this board first.');
+    }
   }
   function session(req) {
     const raw = (req.headers.cookie || '').split(';').map(c => c.trim()).find(c => c.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
@@ -108,17 +119,22 @@ export function createApp(options = {}) {
       const auth = session(req);
       if (!auth) throw new InputError('Please sign in.', 401);
       if (method !== 'GET' && req.headers['x-csrf-token'] !== auth.csrf) throw new InputError('Your session changed. Refresh and try again.', 403);
+      const access = boardAccess(store, auth.user_id);
+      // Finish reading request data before checking the current board membership.
+      const input = method === 'GET' || path === '/api/logout' ? {} : await body(req);
       const assetMatch=path.match(/^\/api\/assets\/([0-9]+|local-[a-f0-9-]{36})\.([a-z0-9]{1,8})$/);
       if(assetMatch&&method==='GET'){
         const local=assetMatch[1].startsWith('local-');
         const file=resolve(local?uploadRoot:assetRoot,`${assetMatch[1]}.${assetMatch[2]}`);
-        if(!existsSync(file))throw new InputError('Attachment not found.',404);
+        if(!access.asset(`${assetMatch[1]}.${assetMatch[2]}`) || !existsSync(file))throw new InputError('Attachment not found.',404);
         const types={...uploadTypes};
         res.writeHead(200,{'Content-Type':types[assetMatch[2]]||'application/octet-stream','Content-Disposition':`${types[assetMatch[2]]?.startsWith('image/')?'inline':'attachment'}; filename="monday-attachment-${assetMatch[1]}.${assetMatch[2]}"`});
         res.end(readFileSync(file));return;
       }
       if(path==='/api/uploads'&&method==='POST'){
-        const input=await body(req),name=String(input.name||'');
+        if (input.list_id != null) access.board(input.list_id,'edit');
+        else access.requireOwner();
+        const name=String(input.name||'');
         const ext=name.split('.').pop().toLowerCase();
         if(name.length>200||!Object.hasOwn(uploadTypes,ext)||typeof input.bytes!=='string')throw new InputError('Choose a supported image or document.');
         if(typeof input.bytes!=='string'||!/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.bytes))throw new InputError('Invalid attachment.');
@@ -126,39 +142,80 @@ export function createApp(options = {}) {
         if(!bytes.length||bytes.length>5*1024*1024)throw new InputError('Attachment must be 5 MB or smaller.');
         const id='local-'+randomUUID();
         writeFileSync(resolve(uploadRoot,`${id}.${ext}`),bytes,{flag:'wx',mode:0o600});
+        store.run('INSERT INTO uploads(filename,user_id,list_id) VALUES(?,?,?)',`${id}.${ext}`,auth.user_id,input.list_id ?? null);
         send(res,201,{id,name,file_extension:ext});return;
       }
       if (path === '/api/session' && method === 'GET') { send(res, 200, { username: auth.username, csrf: auth.csrf }); return; }
       if (path === '/api/logout' && method === 'POST') { store.run('DELETE FROM sessions WHERE token_hash=?', auth.token_hash); send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); return; }
-      if (path === '/api/data' && method === 'GET') { store.runScheduledAutomations(); send(res, 200, store.snapshot()); return; }
-      if (path === '/api/export' && method === 'GET') { send(res, 200, store.snapshot(), { 'Content-Disposition': `attachment; filename="daybook-${new Date().toISOString().slice(0, 10)}.json"` }); return; }
-      if (path === '/api/tasks' && method === 'POST') { send(res, 201, store.insert(await body(req))); return; }
-      const taskUpdates=path.match(/^\/api\/tasks\/([a-z0-9-]+)\/updates$/i);
-      if(taskUpdates&&method==='POST'){const input=await body(req);if(input.assets?.some(a=>!a||!/^local-[a-f0-9-]{36}$/.test(a.id)||!/^[a-z0-9]{1,8}$/.test(a.file_extension)||!existsSync(resolve(uploadRoot,`${a.id}.${a.file_extension}`))))throw new InputError('Upload the attachments first.');send(res,201,store.addUpdate(taskUpdates[1],input,auth.username));return;}
-      const addSubitem=path.match(/^\/api\/tasks\/([a-z0-9-]+)\/subitems$/i);
-      if(addSubitem&&method==='POST'){send(res,201,store.addSubitem(addSubitem[1],await body(req)));return;}
-      const subitemUpdates=path.match(/^\/api\/tasks\/([a-z0-9-]+)\/subitems\/([a-z0-9-]+)\/updates$/i);
-      if(subitemUpdates&&method==='POST'){const input=await body(req);if(input.assets?.some(a=>!a||!/^local-[a-f0-9-]{36}$/.test(a.id)||!/^[a-z0-9]{1,8}$/.test(a.file_extension)||!existsSync(resolve(uploadRoot,`${a.id}.${a.file_extension}`))))throw new InputError('Upload the attachments first.');send(res,201,store.addSubitemUpdate(subitemUpdates[1],subitemUpdates[2],input,auth.username));return;}
-      const below = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/below$/i);
-      if (below && method === 'POST') { send(res, 201, store.createBelow(below[1])); return; }
-      const reorder = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/reorder$/i);
-      if (reorder && method === 'POST') { send(res, 200, store.reorderTask(reorder[1],await body(req))); return; }
-      const convert = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/convert-to-subitem$/i);
-      if (convert && method === 'POST') { const input=await body(req); send(res, 200, store.convertToSubitem(convert[1],input.parent_id)); return; }
-      const subitem = path.match(/^\/api\/tasks\/([a-z0-9-]+)\/subitems\/([a-z0-9-]+)\/(convert-to-item|move)$/i);
-      if (subitem && method === 'POST') { const input=await body(req); send(res, 200, subitem[3]==='convert-to-item'?store.convertSubitemToItem(subitem[1],subitem[2]):store.moveSubitem(subitem[1],subitem[2],input.parent_id)); return; }
-      const match = path.match(/^\/api\/tasks\/([a-z0-9-]+)$/i);
-      if (match && method === 'PATCH') { send(res, 200, store.update(match[1], await body(req))); return; }
-      if (path === '/api/lists' && method === 'POST') { send(res, 201, store.addList(await body(req))); return; }
+      if (path === '/api/data' && method === 'GET') {
+        if (access.owner) store.runScheduledAutomations();
+        send(res,200,access.snapshot(false)); return;
+      }
+      if (path === '/api/export' && method === 'GET') {
+        send(res,200,access.snapshot(true),{'Content-Disposition':`attachment; filename="daybook-${new Date().toISOString().slice(0,10)}.json"`}); return;
+      }
+      const members = path.match(/^\/api\/lists\/([a-z0-9-]+)\/members(?:\/([a-z0-9-]+))?$/i);
+      if (members) {
+        const [,id,member] = members;
+        if (!member && method === 'GET') { send(res,200,access.people(id)); return; }
+        if (!member && method === 'POST') { send(res,201,access.invite(id,input)); return; }
+        if (member && method === 'PATCH') { access.manage(id,member,input); send(res,200,{ok:true}); return; }
+      }
+      const accept = path.match(/^\/api\/invitations\/([a-z0-9-]+)\/accept$/i);
+      if (accept && method === 'POST') { send(res,200,access.accept(accept[1])); return; }
+
+      if (path === '/api/tasks' && method === 'POST') {
+        access.board(input.list_id,'edit');
+        if (!access.owner && input.source_id) throw new InputError('Source IDs are assigned during import.');
+        send(res,201,store.insert(input)); return;
+      }
+      const taskRoute = path.match(/^\/api\/tasks\/([a-z0-9-]+)(?:\/(.*))?$/i);
+      if (taskRoute) {
+        const [,id,action] = taskRoute;
+        const task = store.findTask(id);
+        access.board(task?.list_id,'edit');
+        if (method === 'PATCH' && !action) {
+          if ('list_id' in input) access.board(input.list_id,'edit');
+          send(res,200,store.update(id,input)); return;
+        }
+        if (method === 'POST') {
+          if (input.parent_id) access.board(store.findTask(input.parent_id)?.list_id,'edit');
+          if (input.target_id) access.board(store.findTask(input.target_id)?.list_id,'edit');
+          const child = action?.match(/^subitems\/([a-z0-9-]+)\/(updates|convert-to-item|move)$/i);
+          if (action === 'updates' || child?.[2] === 'updates') {
+            checkAttachments(input.assets,access,auth.user_id,task.list_id);
+            const result = child ? store.addSubitemUpdate(id,child[1],input,auth.username) : store.addUpdate(id,input,auth.username);
+            send(res,201,result); return;
+          }
+          if (action === 'subitems') { send(res,201,store.addSubitem(id,input)); return; }
+          if (action === 'below') { send(res,201,store.createBelow(id)); return; }
+          if (action === 'reorder') { send(res,200,store.reorderTask(id,input)); return; }
+          if (action === 'convert-to-subitem') { send(res,200,store.convertToSubitem(id,input.parent_id)); return; }
+          if (child?.[2] === 'convert-to-item') { send(res,200,store.convertSubitemToItem(id,child[1])); return; }
+          if (child?.[2] === 'move') { send(res,200,store.moveSubitem(id,child[1],input.parent_id)); return; }
+        }
+      }
+      if (path === '/api/lists' && method === 'POST') { access.requireOwner(); send(res,201,store.addList(input)); return; }
       const listMatch = path.match(/^\/api\/lists\/([a-z0-9-]+)$/i);
-      if (listMatch && method === 'PATCH') { send(res, 200, store.updateList(listMatch[1],await body(req))); return; }
-      if (path === '/api/groups' && method === 'POST') { send(res, 201, store.addGroup(await body(req))); return; }
-      const groupMatch = path.match(/^\/api\/groups\/([a-z0-9-]+)$/i);
-      if (groupMatch && method === 'PATCH') { send(res, 200, store.updateGroup(groupMatch[1],await body(req))); return; }
-      if (path === '/api/automations' && method === 'POST') { send(res, 201, store.addAutomation(await body(req))); return; }
-      const automationMatch=path.match(/^\/api\/automations\/([a-z0-9-]+)$/i);
-      if(automationMatch&&method==='PATCH'){send(res,200,store.updateAutomation(automationMatch[1],await body(req)));return;}
-      if (path === '/api/import' && method === 'POST') { const result=store.importData(await body(req));purgeExpiredTrash();send(res, 200, result); return; }
+      if (listMatch && method === 'PATCH') {
+        access.board(listMatch[1],'deleted' in input ? 'owner' : 'edit');
+        send(res,200,store.updateList(listMatch[1],input)); return;
+      }
+      if (method === 'POST' && path === '/api/groups') { access.board(input.list_id,'edit'); send(res,201,store.addGroup(input)); return; }
+      if (method === 'POST' && path === '/api/automations') { access.board(input.list_id,'edit'); send(res,201,store.addAutomation(input)); return; }
+      const group = path.match(/^\/api\/groups\/([a-z0-9-]+)$/i);
+      if (group && method === 'PATCH') {
+        access.board(store.get('SELECT list_id FROM board_groups WHERE id=?',group[1])?.list_id,'edit');
+        send(res,200,store.updateGroup(group[1],input)); return;
+      }
+      const rule = path.match(/^\/api\/automations\/([a-z0-9-]+)$/i);
+      if (rule && method === 'PATCH') {
+        access.board(store.get('SELECT list_id FROM automation_rules WHERE id=?',rule[1])?.list_id,'edit');
+        send(res,200,store.updateAutomation(rule[1],input)); return;
+      }
+      if (path === '/api/import' && method === 'POST') {
+        access.requireOwner(); const result=store.importData(input); purgeExpiredTrash(); send(res,200,result); return;
+      }
       throw new InputError('Not found.', 404);
     } catch (e) {
       if (!(e instanceof InputError)) console.error('Request failed:', e.code || e.name);

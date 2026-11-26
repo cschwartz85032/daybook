@@ -12,7 +12,8 @@ Daybook is a self-hosted board workspace for projects, routines, and everyday ta
 - Board automations for status-driven moves, completion dates, update posts, due-date reminders, and monthly item creation. Due-date reminders appear in the automation run log; email and push delivery are not included.
 - Search, filters, sorting, favorites, bulk actions, recurring items, and 30-day recoverable trash. Deleted boards and items are permanently removed after 30 days, including their updates and attachments.
 - CSV/JSON import and JSON export, including source-ID deduplication for repeat imports.
-- Single-owner authentication, expiring sessions, CSRF protection, SQLite persistence, and online backups.
+- Named board invitations with View or Edit permission, optional sharing, and individual revocation.
+- Expiring account sessions, CSRF protection, SQLite persistence, and online backups.
 
 The public repository contains the app and installer. It contains no personal boards, imported Monday data, account credentials, or uploaded attachments.
 
@@ -51,7 +52,21 @@ docker compose up -d
 curl -fsS http://127.0.0.1:8098/healthz
 ```
 
-The account command creates the sole owner account. Running it again changes the credentials and invalidates existing sessions. There is no default production password. The base Compose file binds Daybook only to the server's loopback address and keeps SQLite and backup files in named volumes.
+The account command creates the sole owner account. Running it again changes the credentials and signs out the owner’s existing sessions. There is no default production password. The base Compose file binds Daybook only to the server's loopback address and keeps SQLite and backup files in named volumes.
+
+## Share a board
+
+Create an account for each person before inviting them. For an installer deployment, run the following in the installation directory and enter the member’s username and password at the prompts.
+
+```bash
+docker compose -p daybook -f compose.yaml -f compose.install.yaml exec daybook node scripts/account.mjs --member
+```
+
+For local development use `npm run account -- --member`. Running the member command with an existing member’s username resets that member’s password.
+
+Open the board and select **Share**. Enter the recipient’s Daybook username, choose **View** or **Edit**, and select **Invite**. Use **Share invitation** or **Copy link** to deliver the invitation. The recipient signs in to that account and accepts the invitation from the link or sidebar. Accepted boards appear under **Shared with me**.
+
+The owner may enable **Sharing Allowed** for either permission. View members with sharing enabled may invite viewers. Edit members with sharing enabled may invite viewers or editors. Under **People with access**, the owner may adjust permissions, cancel a pending invitation, or remove one member. Removing a member preserves other accepted memberships and cancels that member’s outstanding invitations. Only the owner may invite a removed member back.
 
 ## Backups and restore
 
@@ -84,4 +99,4 @@ The development server binds to `127.0.0.1:8098`. `npm test` runs the persistenc
 
 ## Scope
 
-Daybook is a single-owner app. It does not implement Monday webhooks, collaboration permissions, email/push notifications, or time tracking. Test it with your own data before relying on it for important workflows.
+Daybook has one workspace owner who creates boards, manages accounts, and imports data. Members use the boards shared with them. Monday webhooks, email/push notifications, and time tracking are outside the current scope.

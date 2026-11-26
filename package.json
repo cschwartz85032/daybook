@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check server.mjs && node --check lib/store.mjs && node --check public/app.js && node --check public/workspace.js",
+    "check": "node --check server.mjs && node --check lib/store.mjs && node --check lib/sharing.mjs && node --check public/sharing.js && node --check public/app.js && node --check public/workspace.js",
     "backup": "node scripts/backup.mjs",
     "account": "node scripts/account.mjs"
   }

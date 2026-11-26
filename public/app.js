@@ -49,17 +49,17 @@ async function api(path, method = 'GET', body) {
   return result;
 }
 function handleError(e) {
-  if (e.status === 401) { auth = null; editor.close(); small.close(); renderLogin(); }
+  if (e.status === 401) { auth = null; $('#share-dialog').close(); editor.close(); small.close(); renderLogin(); }
   notify(e.message === 'Failed to fetch' ? 'Connection lost. Your changes were not saved. Please try again.' : e.message);
 }
-async function refresh(renderPage = true) { data = await api('data'); updateIndex=new Map();for(const u of data.updates||[]){if(!updateIndex.has(u.item_source_id))updateIndex.set(u.item_source_id,[]);updateIndex.get(u.item_source_id).push(u);} if (renderPage) render(); }
+async function refresh(renderPage = true) { const oldBoard = listById(view); data = await api('data'); if (oldBoard && !listById(view)) { view='all'; editor.close(); small.close(); $('#share-dialog').close(); } updateIndex=new Map();for(const u of data.updates||[]){if(!updateIndex.has(u.item_source_id))updateIndex.set(u.item_source_id,[]);updateIndex.get(u.item_source_id).push(u);} if (renderPage) render(); }
 function options(values, current) { return Object.entries(values).map(([v, label]) => `<option value="${esc(v)}" ${v === current ? 'selected' : ''}>${esc(label)}</option>`).join(''); }
-function listOptions(current) { return data.lists.filter(l=>!l.deleted_at).map(l => `<option value="${esc(l.id)}" ${l.id === current ? 'selected' : ''}>${esc(l.name)}</option>`).join(''); }
+function listOptions(current) { return data.lists.filter(l=>!l.deleted_at&&(editableBoard(l.id)||l.id===current)).map(l => `<option value="${esc(l.id)}" ${l.id === current ? 'selected' : ''}>${esc(l.name)}</option>`).join(''); }
 function renderLogin() {
   app.innerHTML = `<div class="login-page"><section class="login-intro"><div class="brand">${brand()}</div><div class="login-pitch"><div class="eyebrow">WORK, YOUR WAY</div><h1>Everything you need.<br>All on one board.</h1><p>Bring your plans, projects, and everyday work together.</p><div class="login-board-art" aria-hidden="true"><div><span></span><i></i><b></b></div><div><span></span><i></i><b></b></div><div><span></span><i></i><b></b></div><div><span></span><i></i><b></b></div></div></div><div class="bottom-note">Your boards for projects and everyday plans.</div></section><main class="login-main"><form class="login-form" id="login-form"><div class="eyebrow">YOUR WORKSPACE</div><h2>Welcome back.</h2><p>Sign in to pick up where you left off.</p><label class="field">Username<input name="username" autocomplete="username" required maxlength="80" autofocus></label><label class="field">Password<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label><div class="form-error" role="alert"></div><button class="primary" type="submit">Sign in ${icon('arrow')}</button><div class="bottom-note">${icon('lock')}Your boards. Your workspace.</div></form></main></div>`;
   $('#login-form').onsubmit = async event => {
     event.preventDefault(); const form = event.currentTarget, button = $('button', form); button.disabled = true;
-    try { auth = await api('login', 'POST', Object.fromEntries(new FormData(form))); await refresh(); const requested=new URLSearchParams(location.search).get('item');if(requested){const task=data.tasks.find(t=>t.id===requested);if(task)openEditor(task);} }
+    try { auth = await api('login', 'POST', Object.fromEntries(new FormData(form))); view='all'; await refresh(); openRequestedContent(); }
     catch (e) { $('.form-error', form).textContent = e.message === 'Failed to fetch' ? 'Cannot connect. Please try again.' : e.message; }
     finally { button.disabled = false; }
   };
@@ -70,13 +70,15 @@ async function changeTask(task, changes) {
 }
 function updateKeyFor(task) { return task.source_id || `daybook:${task.id}`; }
 function subitemUpdateKey(child){return child.source_id||`${/^\d+$/.test(child.id)?'monday':'daybook'}:${child.id}`;}
-function updatesFor(sourceId) { return updateIndex.get(sourceId) || []; }
-function updateCards(sourceId) {
-  return updatesFor(sourceId).map(u => `<article class="update-card"><div class="update-meta"><strong>${esc(u.creator)}</strong><time datetime="${esc(u.created_at)}">${esc(new Intl.DateTimeFormat('en-US',{dateStyle:'medium'}).format(new Date(u.created_at)))}</time></div>${u.text_body ? `<p>${esc(u.text_body).replace(/\n/g,'<br>')}</p>` : ''}${u.assets?.length ? `<div class="update-assets">${u.assets.map(a => { const ext=String(a.file_extension||'').toLowerCase().replace(/^\./,''); const path=`./api/assets/${encodeURIComponent(a.id)}.${encodeURIComponent(ext)}`; return `<a href="${path}" target="_blank" rel="noopener" aria-label="Open ${esc(a.name)}">${/^(jpg|jpeg|png|gif|webp)$/.test(ext)?`<img src="${path}" alt="${esc(a.name)}" loading="lazy">`:`${icon('download')} ${esc(a.name)}`}</a>`; }).join('')}</div>` : ''}</article>`).join('');
+function updatesFor(sourceId,boardId) {
+  return (updateIndex.get(sourceId)||[]).filter(u=>u.list_id===boardId || (!u.list_id && data.workspace_owner));
+}
+function updateCards(sourceId,boardId) {
+  return updatesFor(sourceId,boardId).map(u => `<article class="update-card"><div class="update-meta"><strong>${esc(u.creator)}</strong><time datetime="${esc(u.created_at)}">${esc(new Intl.DateTimeFormat('en-US',{dateStyle:'medium'}).format(new Date(u.created_at)))}</time></div>${u.text_body ? `<p>${esc(u.text_body).replace(/\n/g,'<br>')}</p>` : ''}${u.assets?.length ? `<div class="update-assets">${u.assets.map(a => { const ext=String(a.file_extension||'').toLowerCase().replace(/^\./,''); const path=`./api/assets/${encodeURIComponent(a.id)}.${encodeURIComponent(ext)}`; return `<a href="${path}" target="_blank" rel="noopener" aria-label="Open ${esc(a.name)}">${/^(jpg|jpeg|png|gif|webp)$/.test(ext)?`<img src="${path}" alt="${esc(a.name)}" loading="lazy">`:`${icon('download')} ${esc(a.name)}`}</a>`; }).join('')}</div>` : ''}</article>`).join('');
 }
 function renderUpdatesSection(task,key=updateKeyFor(task)) {
-  const updates=updatesFor(key);
-  return `<section id="item-updates" class="item-updates-section"><h3>Updates <span class="update-total">${updates.length}</span></h3>${task.deleted_at||task.archived_at?'':`<div class="update-compose"><textarea id="update-text" aria-label="Write an update" maxlength="50000" rows="3" placeholder="Write an update…"></textarea><div class="update-pending-assets" aria-live="polite"></div><div class="update-compose-actions"><div class="update-attach-actions"><button type="button" data-action="take-update-photo" aria-label="Take and attach a photo" title="Take a photo">${icon('camera')}</button><button type="button" data-action="attach-update-file" aria-label="Attach a document" title="Attach a document">${icon('paperclip')}</button><input id="update-photo-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden><input id="update-document-input" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/jpeg,image/png,image/gif,image/webp" multiple hidden></div><button type="button" class="primary" data-action="post-update" disabled>Post update</button></div><div class="update-error" role="alert"></div></div>`}<div class="update-list">${updates.length?updateCards(key):'<p class="hint">No updates yet.</p>'}</div></section>`;
+  const updates=updatesFor(key,task.list_id);
+  return `<section id="item-updates" class="item-updates-section"><h3>Updates <span class="update-total">${updates.length}</span></h3>${!editableBoard(task.list_id)||task.deleted_at||task.archived_at?'':`<div class="update-compose"><textarea id="update-text" aria-label="Write an update" maxlength="50000" rows="3" placeholder="Write an update…"></textarea><div class="update-pending-assets" aria-live="polite"></div><div class="update-compose-actions"><div class="update-attach-actions"><button type="button" data-action="take-update-photo" aria-label="Take and attach a photo" title="Take a photo">${icon('camera')}</button><button type="button" data-action="attach-update-file" aria-label="Attach a document" title="Attach a document">${icon('paperclip')}</button><input id="update-photo-input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden><input id="update-document-input" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/jpeg,image/png,image/gif,image/webp" multiple hidden></div><button type="button" class="primary" data-action="post-update" disabled>Post update</button></div><div class="update-error" role="alert"></div></div>`}<div class="update-list">${updates.length?updateCards(key,task.list_id):'<p class="hint">No updates yet.</p>'}</div></section>`;
 }
 function updateComposerState(root=editor){const field=$('#update-text',root),button=$('[data-action=post-update]',root);if(!field||!button)return;button.disabled=!field.value.trim()&&!updateFiles.length;$('.update-pending-assets',root).innerHTML=updateFiles.map((file,index)=>`<span>${icon(file.type.startsWith('image/')?'camera':'paperclip')}${esc(file.name)}<button type="button" data-remove-update-file="${index}" aria-label="Remove ${esc(file.name)}">×</button></span>`).join('');root.querySelectorAll('[data-remove-update-file]').forEach(b=>b.onclick=()=>{updateFiles.splice(Number(b.dataset.removeUpdateFile),1);updateComposerState(root);});}
 function addUpdateFiles(files,root=editor){const allowed=/\.(jpg|jpeg|png|gif|webp|pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv)$/i;for(const file of files){if(!allowed.test(file.name)||file.size>5*1024*1024){$('.update-error',root).textContent=`${file.name}: choose a supported file under 5 MB.`;continue;}if(updateFiles.length>=10){$('.update-error',root).textContent='Attach up to 10 files.';break;}updateFiles.push(file);}updateComposerState(root);}
@@ -94,31 +96,37 @@ async function postUpdate(task,child=null,root=editor) {
   if(!message&&!updateFiles.length)return;
   button.disabled=true;$('.update-error',root).textContent='';
   try {
-    const assets=[];for(const file of updateFiles)assets.push(await api('uploads','POST',{name:file.name,bytes:await fileBase64(file)}));
+    const assets=[];for(const file of updateFiles)assets.push(await api('uploads','POST',{list_id:task.list_id,name:file.name,bytes:await fileBase64(file)}));
     const update=await api(child?`tasks/${task.id}/subitems/${child.id}/updates`:`tasks/${task.id}/updates`,'POST',{text_body:message,assets});
     data.updates.unshift(update);
     if(!updateIndex.has(update.item_source_id))updateIndex.set(update.item_source_id,[]);
     updateIndex.get(update.item_source_id).unshift(update);
     field.value='';
     updateFiles=[];updateComposerState(root);
-    $('.update-total',root).textContent=updatesFor(update.item_source_id).length;
-    $('.update-list',root).innerHTML=updateCards(update.item_source_id);
+    $('.update-total',root).textContent=updatesFor(update.item_source_id,task.list_id).length;
+    $('.update-list',root).innerHTML=updateCards(update.item_source_id,task.list_id);
     renderTasks();
     notify('Update posted.');
   } catch(e) { $('.update-error',root).textContent=e.message;button.disabled=false; }
 }
 function openEditor(task, defaults = {}) {
+  if (!task && !editingHere()) return;
   closePopover(); if (small.open) small.close();
   delete editor.dataset.updatesOpen;
   updateFiles=[];
   selected = task || null;
-  const t = task || {title:'',notes:'',list_id:listById(view)?.id || data.lists.find(l=>!l.deleted_at)?.id,status:'todo',priority:'none',due_date:view === 'today' ? data.today : '',category:'',quantity:'',repeat:'none',checklist:[],assignee:'',...defaults};
+  const t = task || {title:'',notes:'',list_id:listById(view)?.id || firstEditableBoard()?.id,status:'todo',priority:'none',due_date:view === 'today' ? data.today : '',category:'',quantity:'',repeat:'none',checklist:[],assignee:'',...defaults};
   editChecklist = structuredClone(t.checklist);
   editor.innerHTML = `<form id="task-form"><div class="dialog-head"><h2 id="editor-heading">${task ? 'Item details' : 'New item'}</h2><button type="button" class="icon-button" data-action="close-editor" aria-label="Close task editor">${icon('close')}</button></div><div class="dialog-body"><label class="field">Item name<input class="title-input" name="title" value="${esc(t.title)}" required maxlength="500" placeholder="Name your item"></label><div class="dialog-grid"><label class="field">Board<select name="list_id">${listOptions(t.list_id)}</select></label><label class="field">Status<select name="status">${options(statusLabelsFor(t.list_id),t.status)}</select></label><label class="field">Due date<input name="due_date" type="date" value="${esc(t.due_date)}" min="1900-01-01" max="2200-12-31"></label><label class="field">Priority<select name="priority">${options(priorityNames,t.priority)}</select></label><label class="field">Group<input list="group-options" name="category" maxlength="100" value="${esc(t.category)}" placeholder="e.g. This week, Next week"></label><datalist id="group-options">${(data.groups||[]).filter(g=>g.list_id===t.list_id).map(g=>`<option value="${esc(g.name)}"></option>`).join('')}</datalist><label class="field">Person<input name="assignee" value="${esc(t.assignee)}" maxlength="80" placeholder="Unassigned"></label><label class="field">Quantity<input name="quantity" maxlength="100" value="${esc(t.quantity)}" placeholder="e.g. 2, one box"></label></div><label class="field">Repeat<select name="repeat">${options(repeatNames,t.repeat)}</select></label><p class="hint">Completing a repeating task creates the next occurrence. The completed task stays in your history.</p><label class="field">Notes<textarea name="notes" rows="4" maxlength="50000" placeholder="A few details, a link, a reminder…">${esc(t.notes)}</textarea></label><div class="subtask-heading"><span>Subitems</span><button type="button" class="quiet-link" data-action="add-subtask">${icon('plus')}Add subitem</button></div><div class="checklist" id="checklist"></div>${t.next_task_id ? '<p class="hint">The next occurrence has already been created. Reopening this task will keep that occurrence.</p>' : ''}<div class="form-error" role="alert"></div></div><div class="dialog-footer">${task ? `<button type="button" class="quiet-link ${t.deleted_at ? '' : 'danger'}" data-action="${t.deleted_at ? 'restore-editor' : 'delete'}">${icon(t.deleted_at ? 'repeat' : 'trash')}${t.deleted_at ? 'Restore item' : 'Move to trash'}</button>` : ''}<div class="actions"><button type="button" class="secondary" data-action="close-editor">Cancel</button><button type="submit" class="primary" ${t.deleted_at ? 'disabled' : ''}>${task ? 'Save changes' : 'Add item'}</button></div></div></form>`;
   $('[name=priority]',editor).closest('label').insertAdjacentHTML('beforebegin',`<label class="field">Completed On<input name="completed_on" type="date" value="${esc(t.completed_on||'')}" min="1900-01-01" max="2200-12-31"></label>`);
   renderChecklist();
   if(task){$('#checklist').insertAdjacentHTML('afterend',renderUpdatesSection(task));bindUpdateComposer(editor,task);}
   if(task?.external_data){try{const source=JSON.parse(task.external_data);if(source.columns?.length)$('#checklist').insertAdjacentHTML('afterend',`<details class="imported-fields"><summary>Monday fields (${source.columns.length})</summary><dl>${source.columns.map(c=>`<div><dt>${esc(c.title)}</dt><dd>${esc(c.text||c.value||'—')}</dd></div>`).join('')}</dl></details>`);}catch{}}
+  if (task && !editableBoard(task.list_id)) {
+    for (const field of editor.querySelectorAll('input,select,textarea')) field.disabled=true;
+    for (const button of editor.querySelectorAll('button:not([data-action="close-editor"])')) button.hidden=true;
+    $('.dialog-footer',editor).hidden=true;
+  }
   $('#task-form').onsubmit = saveTask;
   $('[name=list_id]',editor).onchange=e=>{ $('#group-options').innerHTML=(data.groups||[]).filter(g=>g.list_id===e.target.value).map(g=>`<option value="${esc(g.name)}"></option>`).join(''); $('[name=status]',editor).innerHTML=options(statusLabelsFor(e.target.value),'todo'); };
   if (!editor.open) editor.showModal();
@@ -187,4 +195,4 @@ function openImport() {
   };
   $('#import-file').onchange = preview; $('#import-list').onchange = preview;
 }
-async function init() { try { auth = await api('session'); await refresh(); const requested=new URLSearchParams(location.search).get('item'); if(requested){const task=data.tasks.find(t=>t.id===requested);if(task)openEditor(task);else notify('Item not found.');} } catch (e) { if (e.status === 401) renderLogin(); else { app.innerHTML='<div class="boot">Could not connect to your daybook. Please refresh to try again.</div>'; notify(e.message); } } }
+async function init() { try { auth = await api('session'); await refresh(); openRequestedContent(); } catch (e) { if (e.status === 401) renderLogin(); else { app.innerHTML='<div class="boot">Could not connect to your daybook. Please refresh to try again.</div>'; notify(e.message); } } }
