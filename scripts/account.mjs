@@ -4,17 +4,23 @@ import { createInterface, emitKeypressEvents } from 'node:readline';
 import { openStore } from '../lib/store.mjs';
 import { passwordHash, token } from '../lib/auth.mjs';
 
-export async function setAccount(dbPath, username, password) {
+export async function setAccount(dbPath, username, password, { member = false } = {}) {
   if (!/^[a-zA-Z0-9._@-]{1,80}$/.test(username)) throw new Error('Use a username with letters, numbers, dots, dashes, @, or underscores.');
   if (typeof password !== 'string' || password.length < 14 || password.length > 1024) throw new Error('Use a password with 14–1024 characters.');
   const store = openStore(dbPath);
   try {
     const salt = token(); const hash = await passwordHash(password, salt);
-    const user = store.get('SELECT * FROM users LIMIT 1');
     store.transaction(() => {
-      if (user) store.run('UPDATE users SET username=?,salt=?,password_hash=? WHERE id=?', username, salt, hash, user.id);
-      else store.run('INSERT INTO users VALUES(?,?,?,?)', randomUUID(), username, salt, hash);
-      store.run('DELETE FROM sessions');
+      const owner = store.get('SELECT user_id FROM workspace_owner');
+      const existing = store.get('SELECT id FROM users WHERE username=?',username);
+      if (member && !owner) throw new Error('Create the owner account first.');
+      if (member && existing?.id === owner?.user_id) throw new Error('Use the owner account command for this username.');
+      if (!member && existing && existing.id !== owner?.user_id) throw new Error('That username belongs to a member.');
+      const id = (member ? existing?.id : owner?.user_id) || randomUUID();
+      store.run(`INSERT INTO users(id,username,salt,password_hash) VALUES(?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET username=excluded.username,salt=excluded.salt,password_hash=excluded.password_hash`,id,username,salt,hash);
+      if (!member && !owner) store.run('INSERT INTO workspace_owner VALUES(1,?)',id);
+      store.run('DELETE FROM sessions WHERE user_id=?',id);
     });
   } finally { store.db.close(); }
 }
@@ -46,7 +52,7 @@ if (process.argv[1]?.endsWith('account.mjs')) {
       password = await hiddenPassword('Password (14+ characters, hidden): ');
       if (password !== await hiddenPassword('Confirm password: ')) throw new Error('Passwords did not match.');
     }
-    await setAccount(process.env.DB_PATH || resolve('data/daybook.sqlite'), username, password);
-    console.log('Account saved. Existing sessions have been signed out.');
+    await setAccount(process.env.DB_PATH || resolve('data/daybook.sqlite'), username, password, {member:process.argv.includes('--member')});
+    console.log('Account saved. This account’s existing sessions have been signed out.');
   } catch (e) { console.error(e.message); process.exitCode = 1; }
 }
