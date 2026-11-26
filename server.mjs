@@ -1,11 +1,13 @@
 import { boardAccess } from './lib/sharing.mjs';
+import { contactAddress } from './lib/contact.mjs';
+import { issueSetupCode, pendingInvitation, verifySetupCode } from './lib/enrollment.mjs';
 import http from 'node:http';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openStore, InputError } from './lib/store.mjs';
-import { token, digest, verifyPassword } from './lib/auth.mjs';
+import { token, digest, passwordHash, verifyPassword } from './lib/auth.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 export function createApp(options = {}) {
@@ -74,6 +76,12 @@ export function createApp(options = {}) {
     store.run('INSERT INTO login_attempts(key,count,reset_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=?,reset_at=?', key, now + 900000, row && row.reset_at > now ? row.count + 1 : 1, row && row.reset_at > now ? row.reset_at : now + 900000);
   }
   let activeLogins = 0;
+  function newSession(userId) {
+    const raw = token(), csrf = token();
+    store.run('DELETE FROM sessions WHERE expires<?', Date.now());
+    store.run('INSERT INTO sessions VALUES(?,?,?,?)', digest(raw), userId, csrf, Date.now()+30*86400000);
+    return {csrf,headers:{'Set-Cookie':cookie(raw,30*86400)}};
+  }
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -97,24 +105,50 @@ export function createApp(options = {}) {
       if (!path.startsWith('/api/')) throw new InputError('Not found.', 404);
       if (!['GET', 'POST', 'PATCH'].includes(method)) throw new InputError('Method not allowed.', 405);
       if (method !== 'GET' && req.headers.origin !== publicUrl.origin) throw new InputError('Request origin rejected.', 403);
+      const entry = path.match(/^\/api\/invitations\/([a-z0-9-]+)\/(entry|activate)$/i);
+      if (entry && entry[2]==='entry' && method==='GET') {
+        send(res,200,{needs_setup:Boolean(pendingInvitation(store,entry[1])?.needs_setup)}); return;
+      }
+      if (entry && entry[2]==='activate' && method==='POST') {
+        if (session(req)) throw new InputError('Sign out before setting up another account.',409);
+        const data = await body(req), id = entry[1];
+        if (typeof data.password!=='string' || data.password.length<14 || data.password.length>1024) throw new InputError('Choose a password with 14–1024 characters.');
+        const ip = process.env.TRUST_PROXY==='1' ? req.headers['x-real-ip'] || req.socket.remoteAddress : req.socket.remoteAddress;
+        limit('setup:'+digest(String(ip)),30);
+        verifySetupCode(store,id,data.contact,data.code);
+        if (activeLogins>=3) throw new InputError('Please try again shortly.',429);
+        const salt=token();
+        let hash;
+        activeLogins++;
+        try { hash=await passwordHash(data.password,salt); } finally { activeLogins--; }
+        const {invitation,login}=store.transaction(()=>{
+          const invitation=verifySetupCode(store,id,data.contact,data.code);
+          store.run('UPDATE users SET password_hash=?,salt=? WHERE id=?',hash,salt,invitation.user_id);
+          store.run('DELETE FROM pending_accounts WHERE user_id=?',invitation.user_id);
+          store.run('DELETE FROM setup_codes WHERE invitation_id IN (SELECT id FROM board_members WHERE user_id=?)',invitation.user_id);
+          store.run("UPDATE board_members SET state='active' WHERE id=?",id);
+          return {invitation,login:newSession(invitation.user_id)};
+        });
+        send(res,200,{username:invitation.username,csrf:login.csrf,list_id:invitation.list_id},login.headers); return;
+      }
       if (path === '/api/login' && method === 'POST') {
         const data = await body(req);
-        if (typeof data.username !== 'string' || data.username.length > 80 || typeof data.password !== 'string' || data.password.length > 1024) throw new InputError('Enter your username and password.');
+        if (typeof data.username !== 'string' || data.username.length > 254 || typeof data.password !== 'string' || data.password.length > 1024) throw new InputError('Enter your sign-in name and password.');
         data.username = data.username.trim();
         const ip = process.env.TRUST_PROXY === '1' ? req.headers['x-real-ip'] || req.socket.remoteAddress : req.socket.remoteAddress;
         limit('ip:' + digest(String(ip)), 30);
-        limit('user:' + digest(data.username.toLowerCase()), 10);
+        const identity = contactAddress(data.username)?.address || data.username.toLowerCase();
+        limit('user:' + digest(identity), 10);
         if (activeLogins >= 3) throw new InputError('Please try again shortly.', 429);
-        const user = store.get('SELECT * FROM users WHERE username=?', data.username.trim());
+        const user = store.get(`SELECT u.* FROM users u LEFT JOIN pending_accounts p ON p.user_id=u.id
+          WHERE p.user_id IS NULL AND u.username IN (?,?) ORDER BY u.username=? DESC LIMIT 1`,data.username,identity,data.username);
         let valid;
         activeLogins++;
         try { valid = await verifyPassword(data.password, user); } finally { activeLogins--; }
         if (!valid) throw new InputError('The username or password is incorrect.', 401);
-        const raw = token(), csrf = token();
-        store.run('DELETE FROM sessions WHERE expires<?', Date.now());
-        store.run('DELETE FROM login_attempts WHERE reset_at<? OR key=?', Date.now(), 'user:' + digest(data.username.toLowerCase()));
-        store.run('INSERT INTO sessions VALUES(?,?,?,?)', digest(raw), user.id, csrf, Date.now() + 30 * 86400000);
-        send(res, 200, { username: user.username, csrf }, { 'Set-Cookie': cookie(raw, 30 * 86400) }); return;
+        store.run('DELETE FROM login_attempts WHERE reset_at<? OR key=?', Date.now(), 'user:' + digest(identity));
+        const login=newSession(user.id);
+        send(res, 200, { username: user.username, csrf:login.csrf },login.headers); return;
       }
       const auth = session(req);
       if (!auth) throw new InputError('Please sign in.', 401);
@@ -154,11 +188,20 @@ export function createApp(options = {}) {
       if (path === '/api/export' && method === 'GET') {
         send(res,200,access.snapshot(true),{'Content-Disposition':`attachment; filename="daybook-${new Date().toISOString().slice(0,10)}.json"`}); return;
       }
+      const codeRoute = path.match(/^\/api\/lists\/([a-z0-9-]+)\/members\/([a-z0-9-]+)\/setup-code$/i);
+      if (method==='POST' && codeRoute) {
+        access.board(codeRoute[1],'owner');
+        send(res,200,issueSetupCode(store,codeRoute[1],codeRoute[2])); return;
+      }
       const members = path.match(/^\/api\/lists\/([a-z0-9-]+)\/members(?:\/([a-z0-9-]+))?$/i);
       if (members) {
         const [,id,member] = members;
         if (!member && method === 'GET') { send(res,200,access.people(id)); return; }
-        if (!member && method === 'POST') { send(res,201,access.invite(id,input)); return; }
+        if (!member && method === 'POST') {
+          const result=access.invite(id,input);
+          if (result.needs_setup && access.owner) result.setup=issueSetupCode(store,id,result.id);
+          send(res,201,result); return;
+        }
         if (member && method === 'PATCH') { access.manage(id,member,input); send(res,200,{ok:true}); return; }
       }
       const accept = path.match(/^\/api\/invitations\/([a-z0-9-]+)\/accept$/i);

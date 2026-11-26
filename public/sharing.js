@@ -44,13 +44,25 @@ function deliveryButtons(id) {
     ${navigator.share ? '<button class="secondary" type="button" data-deliver="share">Share invitation</button>' : ''}
     <button class="secondary" type="button" data-deliver="copy">Copy link</button></div>`;
 }
+function setupDelivery(board,id,setup) {
+  const link=invitationUrl(board.id,id);
+  const message=`You’re invited to ${board.name} on Daybook. Open ${link} and enter setup code ${setup.code} to choose your password. The code expires in 30 minutes.`;
+  const isPhone=setup.contact.startsWith('+');
+  const address=setup.contact.split('@').map(encodeURIComponent).join('@');
+  const target=isPhone ? 'sms:'+setup.contact+'?body='+encodeURIComponent(message) :
+    'mailto:'+address+'?subject='+encodeURIComponent('Daybook invitation')+'&body='+encodeURIComponent(message);
+  return `<div class="account-delivery"><a class="primary" href="${esc(target)}">${isPhone?'Text invitation':'Email invitation'}</a>
+    <button class="secondary" type="button" data-copy-message="${esc(message)}">Copy invitation message</button>
+    <details><summary>Send the code separately</summary><p>Send <strong>${esc(setup.code)}</strong> to ${esc(setup.contact)}. It expires in 30 minutes.</p></details></div>`;
+}
 function memberRow(person) {
   return `<form class="share-person" data-member="${esc(person.id)}">
     <div><strong>${esc(person.username)}</strong><small>${person.state==='pending'?'Pending · ':''}Invited by ${esc(person.inviter)}</small></div>
     <div class="share-controls">${roleSelect(person.role,true,'Permission for '+person.username)}${sharingCheckbox(person.sharing)}</div>
     <div class="share-controls"><button class="secondary" type="submit" disabled>Save</button>
       <button class="quiet-link danger" type="button" data-remove>${person.state==='pending'?'Cancel invitation':'Remove access'}</button></div>
-    ${person.state==='pending'?deliveryButtons(person.id):''}</form>`;
+    ${person.state==='pending'?deliveryButtons(person.id):''}
+    ${person.needs_setup&&person.state==='pending'?'<button class="secondary" type="button" data-issue-code>Prepare setup message</button>':''}</form>`;
 }
 async function openSharing(board, issued) {
   closePopover();
@@ -60,14 +72,22 @@ async function openSharing(board, issued) {
   dialog.innerHTML = `<div class="dialog-head"><div><h2 id="share-title">Share board</h2><small>${esc(board.name)}</small></div>
     <button type="button" class="icon-button" aria-label="Close" data-dismiss>${icon('close')}</button></div>
     <div class="dialog-body"><form id="board-invite">
-      <label class="field">Daybook username<input name="username" required maxlength="80" autocapitalize="none" autocomplete="off"></label>
+      <label class="field">Email or mobile number<input name="contact" required maxlength="254" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="name@example.com or +1 602 555 0123"></label>
       <div class="share-controls"><label class="field">Permission ${roleSelect('view',board.role!=='view','Invitation permission')}</label>
       ${owner?sharingCheckbox(false):''}</div>
       <button class="primary" type="submit">Invite</button></form>
-    ${issued?`<section class="invite-ready" role="status"><strong>Invitation ready for ${esc(issued.username)}</strong>${deliveryButtons(issued.id)}</section>`:''}
+    ${issued?`<section class="invite-ready" role="status"><strong>Invitation ready for ${esc(issued.contact)}</strong>
+      ${issued.setup?setupDelivery(board,issued.id,issued.setup):issued.needs_setup?'<p>The board owner can send the setup code from People with access.</p>':''}
+      ${deliveryButtons(issued.id)}</section>`:''}
     ${owner?`<section class="share-people"><h3>People with access</h3><div class="share-owner"><strong>${esc(auth.username)}</strong><span>Owner</span></div>${people.map(memberRow).join('')}</section>`:''}
     <div class="form-error" role="alert"></div></div>`;
   if (!dialog.open) dialog.showModal();
+  dialog.onclick=async event=>{
+    const button=event.target.closest('[data-copy-message]');
+    if (!button) return;
+    try { await navigator.clipboard.writeText(button.dataset.copyMessage); notify('Invitation message copied.'); }
+    catch { prompt('Copy invitation message',button.dataset.copyMessage); }
+  };
   const error = $('.form-error',dialog);
   $('[data-dismiss]',dialog).onclick = () => dialog.close();
   const invite = $('#board-invite',dialog);
@@ -76,15 +96,24 @@ async function openSharing(board, issued) {
     const submit = $('button[type=submit]',invite);
     submit.disabled = true;
     try {
-      const username = invite.elements.username.value.trim();
-      const result = await api(`lists/${board.id}/members`,'POST',{username,role:invite.elements.role.value,sharing:!!invite.elements.sharing?.checked});
-      await openSharing(board,{username,id:result.id});
-      $('.invite-ready button',dialog)?.focus();
+      const contact = invite.elements.contact.value.trim();
+      const result = await api(`lists/${board.id}/members`,'POST',{contact,role:invite.elements.role.value,sharing:!!invite.elements.sharing?.checked});
+      await openSharing(board,{contact,...result});
+      $('.invite-ready a,.invite-ready button',dialog)?.focus();
     } catch (e) { error.textContent=e.message; submit.disabled=false; }
   };
   for (const form of dialog.querySelectorAll('[data-member]')) {
     const save = $('button[type=submit]',form);
     const person = people.find(p=>p.id===form.dataset.member);
+    const setupButton = $('[data-issue-code]',form);
+    if (setupButton) setupButton.onclick = async () => {
+      setupButton.disabled=true;
+      try {
+        const setup=await api(`lists/${board.id}/members/${person.id}/setup-code`,'POST',{});
+        setupButton.outerHTML=setupDelivery(board,person.id,setup);
+        $('.account-delivery a',form)?.focus();
+      } catch (e) { error.textContent=e.message; setupButton.disabled=false; }
+    };
     form.onchange = () => { save.disabled = false; };
     async function change(changes) {
       try {
@@ -143,11 +172,48 @@ function openRequestedContent() {
   if (query.has('board')) {
     const board = listById(query.get('board'));
     if (board && !board.deleted_at) navigate(board.id);
-    else notify('Board unavailable for this account.');
+    else if (query.has('invite')) {
+      infoDialog('Board invitation',`<p>This invitation is unavailable to ${esc(auth.username)}.</p><button class="secondary" id="switch-invite-account">Use another account</button>`);
+      $('#switch-invite-account',small).onclick=async()=>{
+        try { await api('logout','POST',{}); auth=null; small.close(); await showSignInOrSetup(); } catch (e) { handleError(e); }
+      };
+    } else notify('Board unavailable for this account.');
   }
   if (query.has('item')) {
     const task = data.tasks.find(t=>t.id===query.get('item'));
     if (task) openEditor(task);
     else notify('Item unavailable for this account.');
   }
+}
+
+async function showSignInOrSetup() {
+  renderLogin();
+  const id=new URLSearchParams(location.search).get('invite');
+  if (!id || !/^[a-z0-9-]{1,80}$/i.test(id)) return;
+  const {needs_setup}=await api(`invitations/${id}/entry`);
+  if (!needs_setup || !$('#login-form')) return;
+  $('.login-main').innerHTML=`<form id="setup-account" class="login-form"><h2>Set up your Daybook account</h2>
+    <p>Use the contact and setup code from your invitation.</p>
+    <label class="field">Email or mobile number<input name="contact" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required></label>
+    <label class="field">Setup code<input name="code" autocomplete="one-time-code" autocapitalize="characters" maxlength="32" required></label>
+    <label class="field">Choose a password<input name="password" type="password" minlength="14" maxlength="1024" autocomplete="new-password" required></label>
+    <small>Use at least 14 characters.</small><div class="form-error" role="alert"></div>
+    <button class="primary" type="submit">Create account and open board</button><button type="button" class="quiet-link" id="existing-signin">Sign in to an existing account</button></form>`;
+  $('#existing-signin').onclick=renderLogin;
+  const form=$('#setup-account');
+  form.elements.contact.focus();
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const submit=$('[type=submit]',form);
+    submit.disabled=true;
+    try {
+      const result=await api(`invitations/${id}/activate`,'POST',Object.fromEntries(new FormData(form)));
+      auth={username:result.username,csrf:result.csrf};
+      const url=new URL('./',location.href);
+      url.searchParams.set('board',result.list_id);
+      history.replaceState(null,'',url);
+      await refresh(false);
+      navigate(result.list_id);
+    } catch (error) { $('.form-error',form).textContent=error.message; submit.disabled=false; }
+  };
 }
