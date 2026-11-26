@@ -1,7 +1,9 @@
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=8098 DB_PATH=/app/data/daybook.sqlite
 WORKDIR /app
-COPY --chown=node:node package.json server.mjs ./
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY --chown=node:node server.mjs ./
 COPY --chown=node:node lib ./lib
 COPY --chown=node:node public ./public
 COPY --chown=node:node scripts/account.mjs scripts/backup.mjs ./scripts/

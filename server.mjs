@@ -1,4 +1,6 @@
 import { boardAccess } from './lib/sharing.mjs';
+import { twilioProvider } from './lib/twilio/provider.mjs';
+import { invitationSms, mobileAccount, smsCallbackPath } from './lib/invitation-sms.mjs';
 import { contactAddress } from './lib/contact.mjs';
 import { issueSetupCode, pendingInvitation, verifySetupCode } from './lib/enrollment.mjs';
 import http from 'node:http';
@@ -17,7 +19,9 @@ export function createApp(options = {}) {
   if (production && publicUrl.protocol !== 'https:') throw new Error('PUBLIC_URL must be an HTTPS URL in production.');
   if (publicUrl.search || publicUrl.hash || publicUrl.username || publicUrl.password) throw new Error('PUBLIC_URL must contain only an origin and optional path.');
   const base = publicUrl.pathname.replace(/\/$/, '');
+  const smsProvider = options.smsProvider === undefined ? twilioProvider() : options.smsProvider;
   const store = openStore(options.dbPath || process.env.DB_PATH || resolve(root, 'data/daybook.sqlite'), options.timeZone || process.env.APP_TIMEZONE || 'America/Phoenix');
+  const texts = invitationSms(store,smsProvider,publicUrl);
   const assetRoot = existsSync(resolve(root, 'monday-assets')) ? resolve(root, 'monday-assets') : resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'monday-assets');
   const uploadRoot = resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'upload-assets');
   mkdirSync(uploadRoot,{recursive:true,mode:0o700});
@@ -36,6 +40,26 @@ export function createApp(options = {}) {
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=${base || '/'}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${publicUrl.protocol === 'https:' ? '; Secure' : ''}`;
   const staticFiles = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/sharing.js',['sharing.js','text/javascript; charset=utf-8']], ['/workspace.js', ['workspace.js', 'text/javascript; charset=utf-8']], ['/style.css', ['style.css', 'text/css; charset=utf-8']], ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]].map(([url, [file, type]]) => [url, { body: readFileSync(resolve(root, 'public', file)), type }]));
   const maxBody = 8 * 1024 * 1024;
+  async function receiveStatus(req,res,url,attempt) {
+    if (!smsProvider) throw new InputError('Not found.',404);
+    if (req.headers['content-type']?.split(';')[0].trim() !== 'application/x-www-form-urlencoded') throw new InputError('Expected form data.',415);
+    let size=0;
+    const chunks=[];
+    for await (const chunk of req) {
+      size+=chunk.length;
+      if (size>16384) throw new InputError('Form too large.',413);
+      chunks.push(chunk);
+    }
+    const fields=Object.create(null);
+    for (const [key,value] of new URLSearchParams(Buffer.concat(chunks).toString('utf8'))) {
+      if (Object.hasOwn(fields,key)) throw new InputError('Duplicate field.');
+      fields[key]=value;
+    }
+    if (!smsProvider.verifies(publicUrl.origin+url.pathname+url.search,req.headers['x-twilio-signature'],fields)) throw new InputError('Invalid status signature.',403);
+    if (!texts.record(attempt,fields.MessageSid,fields.MessageStatus,fields.ErrorCode)) throw new InputError('Unknown text or status.',400);
+    res.writeHead(204);
+    res.end();
+  }
   async function body(req) {
     if (!(req.headers['content-type'] || '').startsWith('application/json')) throw new InputError('Send JSON.', 415);
     let size = 0; const chunks = [];
@@ -104,6 +128,12 @@ export function createApp(options = {}) {
       }
       if (!path.startsWith('/api/')) throw new InputError('Not found.', 404);
       if (!['GET', 'POST', 'PATCH'].includes(method)) throw new InputError('Method not allowed.', 405);
+      if (method==='POST' && path.startsWith(smsCallbackPath)) {
+        const attempt=path.slice(smsCallbackPath.length);
+        if (!/^[a-f0-9-]{36}$/i.test(attempt)) throw new InputError('Not found.',404);
+        await receiveStatus(req,res,url,attempt);
+        return;
+      }
       if (method !== 'GET' && req.headers.origin !== publicUrl.origin) throw new InputError('Request origin rejected.', 403);
       const entry = path.match(/^\/api\/invitations\/([a-z0-9-]+)\/(entry|activate)$/i);
       if (entry && entry[2]==='entry' && method==='GET') {
@@ -183,7 +213,7 @@ export function createApp(options = {}) {
       if (path === '/api/logout' && method === 'POST') { store.run('DELETE FROM sessions WHERE token_hash=?', auth.token_hash); send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); return; }
       if (path === '/api/data' && method === 'GET') {
         if (access.owner) store.runScheduledAutomations();
-        send(res,200,access.snapshot(false)); return;
+        send(res,200,{...access.snapshot(false),sms_enabled:Boolean(smsProvider)}); return;
       }
       if (path === '/api/export' && method === 'GET') {
         send(res,200,access.snapshot(true),{'Content-Disposition':`attachment; filename="daybook-${new Date().toISOString().slice(0,10)}.json"`}); return;
@@ -191,15 +221,40 @@ export function createApp(options = {}) {
       const codeRoute = path.match(/^\/api\/lists\/([a-z0-9-]+)\/members\/([a-z0-9-]+)\/setup-code$/i);
       if (method==='POST' && codeRoute) {
         access.board(codeRoute[1],'owner');
+        const pending=pendingInvitation(store,codeRoute[2]);
+        if (pending?.list_id===codeRoute[1] && smsProvider && mobileAccount(pending.username)) throw new InputError('Use Resend text for this invitation.',409);
         send(res,200,issueSetupCode(store,codeRoute[1],codeRoute[2])); return;
+      }
+      const textRoute=path.match(/^\/api\/lists\/([a-z0-9-]+)\/members\/([a-z0-9-]+)\/text$/i);
+      if (method==='POST' && textRoute) {
+        const [,boardId,id]=textRoute;
+        const allowed=access.board(boardId,'share');
+        const pending=pendingInvitation(store,id);
+        if (pending?.list_id!==boardId || (!access.owner && (pending.invited_by!==auth.user_id || (pending.role==='edit' && allowed.role!=='edit')))) throw new InputError('Invitation unavailable.',404);
+        send(res,200,await texts.send(boardId,id,auth.user_id)); return;
       }
       const members = path.match(/^\/api\/lists\/([a-z0-9-]+)\/members(?:\/([a-z0-9-]+))?$/i);
       if (members) {
         const [,id,member] = members;
-        if (!member && method === 'GET') { send(res,200,access.people(id)); return; }
+        if (!member && method === 'GET') {
+          const people=access.people(id,Boolean(smsProvider)).map(person=>{
+            if (smsProvider && person.state==='pending' && mobileAccount(person.username)) {
+              return {...person,sms:texts.latest(person.id) || {state:'unsent'}};
+            }
+            return person;
+          });
+          send(res,200,people); return;
+        }
         if (!member && method === 'POST') {
           const result=access.invite(id,input);
-          if (result.needs_setup && access.owner) result.setup=issueSetupCode(store,id,result.id);
+          const pending=pendingInvitation(store,result.id);
+          if (smsProvider && mobileAccount(pending?.username)) {
+            try { result.sms=await texts.send(id,result.id,auth.user_id); }
+            catch (error) {
+              if (error.status!==429) throw error;
+              result.sms={state:'limited',reason:error.message};
+            }
+          } else if (result.needs_setup && access.owner) result.setup=issueSetupCode(store,id,result.id);
           send(res,201,result); return;
         }
         if (member && method === 'PATCH') { access.manage(id,member,input); send(res,200,{ok:true}); return; }

@@ -58,9 +58,9 @@ The account command creates the sole owner account. Running it again changes the
 
 Open a board and select **Share**. Enter an email address or mobile number, choose **View** or **Edit**, and select **Invite**. Daybook creates a pending account for a new contact and reuses that account on subsequent invitations. Ten-digit mobile numbers default to +1. Include the country code for other numbers. Existing Daybook usernames also work.
 
-For a new contact, select **Email invitation** or **Text invitation** to open an addressed draft in your mail or messaging app. Send it to the recipient. It contains a board link and a separate setup code valid for 30 minutes. The recipient opens the link, enters their contact and code, and chooses a password. This signs them in and opens the shared board.
+When Twilio is configured, selecting **Invite** sends a mobile recipient a text directly from Daybook. For a new account the text contains a board link and a setup code valid for 30 minutes. The recipient enters their number and code, chooses a password, and opens the board. Existing members sign in and accept the invitation. The owner and the member who sent the invitation can check delivery status and resend a pending text. A resend replaces the previous setup code.
 
-For an existing account, use **Share invitation** or **Copy link**. The recipient signs in and accepts from the link or the sidebar. Accepted boards appear under **Shared with me**. For a delegated invitation to a first-time member, the workspace owner opens **People with access** and selects **Prepare setup message**. Only the owner may issue a first-time account code. Preparing another message replaces the previous code for that invitation.
+For email invitations, or mobile invitations on installations without Twilio, the owner selects **Email invitation** or **Text invitation** to send a first-time setup message from their device. If another member created the invitation, the owner selects **Prepare setup message** under **People with access**. Existing accounts can use **Share invitation** or **Copy link**. Accepted boards appear under **Shared with me**.
 
 Accounts may also be provisioned or reset from the installation directory:
 
@@ -71,6 +71,14 @@ docker compose -p daybook -f compose.yaml -f compose.install.yaml exec daybook n
 For local development use `npm run account -- --member`. Running the member command with an existing member’s username resets that member’s password.
 
 The owner may enable **Sharing Allowed** for either permission. View members with sharing enabled may invite viewers. Edit members with sharing enabled may invite viewers or editors. Under **People with access**, the owner may adjust permissions, cancel a pending invitation, or remove one member. Removing a member preserves other accepted memberships and cancels that member’s outstanding invitations. Only the owner may invite a removed member back.
+
+### Configure invitation texts
+
+Set `DAYBOOK_TWILIO_ACCOUNT_SID` and `DAYBOOK_TWILIO_AUTH_TOKEN` in the installation's private `.env` or secret manager. Set `DAYBOOK_TWILIO_MESSAGING_SERVICE_SID` to the Messaging Service for Daybook, or set `DAYBOOK_TWILIO_FROM_NUMBER` to its SMS-capable number in international format. Setting both selects a specific sender in that service. Recreate the Daybook container after changing these settings.
+
+Each invitation supplies its own delivery callback under `PUBLIC_URL`. The reverse proxy must forward POST requests to that URL. Daybook verifies Twilio's signature before recording a status. Unconfirmed sends can be checked in the Share panel before resending. Setup codes go directly to the recipient.
+
+The sender and error handling in `lib/twilio` are adapted from LoanServe’s MIT-licensed `server/services/sms-provider-factory.ts`, `server/communications/sms/provider-errors.ts` and `server/webhooks/twilio-request.ts` at revision `70ecf319`.
 
 ## Backups and restore
 
@@ -92,9 +100,10 @@ Imported Monday update attachments can be served from `/app/data/monday-assets` 
 
 ## Develop locally
 
-Requires Node.js 24.8 or newer in the Node 24 line. There are no npm dependencies or build steps.
+Requires Node.js 24.8 or newer in the Node 24 line.
 
 ```bash
+npm ci
 npm run account
 npm start
 ```

@@ -19,7 +19,7 @@ test('first-time recipients activate by contact and code, with revocation and de
   const dir=mkdtempSync(join(tmpdir(),'daybook-onboarding-')), dbPath=join(dir,'daybook.sqlite');
   const password='Daybook enrollment test password';
   await setAccount(dbPath,'owner',password);
-  const origin='http://127.0.0.1:8098',app=createApp({dbPath,publicUrl:origin+'/daybook'});
+  const origin='http://127.0.0.1:8098',app=createApp({dbPath,publicUrl:origin+'/daybook',smsProvider:null});
   await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
   t.after(async()=>{await new Promise(r=>app.server.close(r));app.store.db.close();rmSync(dir,{recursive:true,force:true});});
   const base='http://127.0.0.1:'+app.server.address().port+'/daybook/api/';
