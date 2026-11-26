@@ -55,14 +55,22 @@ function setupDelivery(board,id,setup) {
     <button class="secondary" type="button" data-copy-message="${esc(message)}">Copy invitation message</button>
     <details><summary>Send the code separately</summary><p>Send <strong>${esc(setup.code)}</strong> to ${esc(setup.contact)}. It expires in 30 minutes.</p></details></div>`;
 }
-function memberRow(person) {
+function textStatus(sms) {
+  const labels={unsent:'Text has not been sent.',submitting:'Submitting text…',accepted:'Text accepted by Twilio.',scheduled:'Text scheduled.',
+    queued:'Text queued.',sending:'Sending text…',sent:'Text sent to carrier.',delivered:'Text delivered.',undelivered:'Text undelivered.',
+    failed:'Text failed.',canceled:'Text canceled.',limited:'Text paused.',unknown:'Delivery unconfirmed. Check the status before resending.'};
+  return [labels[sms.state],sms.reason].filter(Boolean).join(' ');
+}
+function memberRow(person,owner) {
   return `<form class="share-person" data-member="${esc(person.id)}">
     <div><strong>${esc(person.username)}</strong><small>${person.state==='pending'?'Pending · ':''}Invited by ${esc(person.inviter)}</small></div>
-    <div class="share-controls">${roleSelect(person.role,true,'Permission for '+person.username)}${sharingCheckbox(person.sharing)}</div>
+    ${owner?`<div class="share-controls">${roleSelect(person.role,true,'Permission for '+person.username)}${sharingCheckbox(person.sharing)}</div>
     <div class="share-controls"><button class="secondary" type="submit" disabled>Save</button>
-      <button class="quiet-link danger" type="button" data-remove>${person.state==='pending'?'Cancel invitation':'Remove access'}</button></div>
+      <button class="quiet-link danger" type="button" data-remove>${person.state==='pending'?'Cancel invitation':'Remove access'}</button></div>`:''}
     ${person.state==='pending'?deliveryButtons(person.id):''}
-    ${person.needs_setup&&person.state==='pending'?'<button class="secondary" type="button" data-issue-code>Prepare setup message</button>':''}</form>`;
+    ${person.sms?`<small role="status">${esc(textStatus(person.sms))}</small>
+      <button class="secondary" type="button" data-send-text>${person.sms.state==='unsent'?'Send text':'Resend text'}</button>`
+      :owner&&person.needs_setup&&person.state==='pending'?'<button class="secondary" type="button" data-issue-code>Prepare setup message</button>':''}</form>`;
 }
 async function openSharing(board, issued) {
   closePopover();
@@ -73,13 +81,17 @@ async function openSharing(board, issued) {
     <button type="button" class="icon-button" aria-label="Close" data-dismiss>${icon('close')}</button></div>
     <div class="dialog-body"><form id="board-invite">
       <label class="field">Email or mobile number<input name="contact" required maxlength="254" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="name@example.com or +1 602 555 0123"></label>
+      ${data.sms_enabled?'<small>Daybook texts the invitation when you enter a mobile number.</small>':''}
       <div class="share-controls"><label class="field">Permission ${roleSelect('view',board.role!=='view','Invitation permission')}</label>
       ${owner?sharingCheckbox(false):''}</div>
       <button class="primary" type="submit">Invite</button></form>
     ${issued?`<section class="invite-ready" role="status"><strong>Invitation ready for ${esc(issued.contact)}</strong>
-      ${issued.setup?setupDelivery(board,issued.id,issued.setup):issued.needs_setup?'<p>The board owner can send the setup code from People with access.</p>':''}
+      ${issued.sms?`<p>${esc(textStatus(issued.sms))}</p>`:issued.setup?setupDelivery(board,issued.id,issued.setup):issued.needs_setup?'<p>The board owner can send the setup code from People with access.</p>':''}
       ${deliveryButtons(issued.id)}</section>`:''}
-    ${owner?`<section class="share-people"><h3>People with access</h3><div class="share-owner"><strong>${esc(auth.username)}</strong><span>Owner</span></div>${people.map(memberRow).join('')}</section>`:''}
+    ${owner || people.length?`<section class="share-people"><h3>${owner?'People with access':'Your pending invitations'}</h3>
+      ${owner?`<div class="share-owner"><strong>${esc(auth.username)}</strong><span>Owner</span></div>`:''}
+      ${people.map(person=>memberRow(person,owner)).join('')}
+      ${people.some(person=>person.sms)?'<button class="quiet-link" type="button" data-refresh-status>Refresh text status</button>':''}</section>`:''}
     <div class="form-error" role="alert"></div></div>`;
   if (!dialog.open) dialog.showModal();
   dialog.onclick=async event=>{
@@ -89,6 +101,8 @@ async function openSharing(board, issued) {
     catch { prompt('Copy invitation message',button.dataset.copyMessage); }
   };
   const error = $('.form-error',dialog);
+  const refreshStatus=$('[data-refresh-status]',dialog);
+  if (refreshStatus) refreshStatus.onclick=()=>openSharing(board).catch(e=>{ error.textContent=e.message; });
   $('[data-dismiss]',dialog).onclick = () => dialog.close();
   const invite = $('#board-invite',dialog);
   invite.onsubmit = async event => {
@@ -105,6 +119,16 @@ async function openSharing(board, issued) {
   for (const form of dialog.querySelectorAll('[data-member]')) {
     const save = $('button[type=submit]',form);
     const person = people.find(p=>p.id===form.dataset.member);
+    const resend=$('[data-send-text]',form);
+    if (resend) resend.onclick=async()=>{
+      resend.disabled=true;
+      try {
+        const status=await api(`lists/${board.id}/members/${person.id}/text`,'POST',{});
+        await openSharing(board);
+        notify(textStatus(status));
+      } catch (e) { error.textContent=e.message; resend.disabled=false; }
+    };
+    if (!owner) { form.onsubmit=e=>e.preventDefault(); continue; }
     const setupButton = $('[data-issue-code]',form);
     if (setupButton) setupButton.onclick = async () => {
       setupButton.disabled=true;

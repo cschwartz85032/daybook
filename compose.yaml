@@ -14,6 +14,10 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-0}
       DB_PATH: /app/data/daybook.sqlite
       BACKUP_DIR: /app/backups
+      DAYBOOK_TWILIO_ACCOUNT_SID: ${DAYBOOK_TWILIO_ACCOUNT_SID:-}
+      DAYBOOK_TWILIO_AUTH_TOKEN: ${DAYBOOK_TWILIO_AUTH_TOKEN:-}
+      DAYBOOK_TWILIO_MESSAGING_SERVICE_SID: ${DAYBOOK_TWILIO_MESSAGING_SERVICE_SID:-}
+      DAYBOOK_TWILIO_FROM_NUMBER: ${DAYBOOK_TWILIO_FROM_NUMBER:-}
     volumes:
       - daybook-data:/app/data
       - daybook-backups:/app/backups

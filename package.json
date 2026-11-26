@@ -4,12 +4,17 @@
   "private": true,
   "type": "module",
   "description": "Self-hosted boards for projects and everyday tasks, with subitems, updates, and automations",
-  "engines": { "node": ">=24.8.0 <25" },
+  "engines": {
+    "node": ">=24.8.0 <25"
+  },
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check server.mjs && node --check lib/store.mjs && node --check lib/contact.mjs && node --check lib/enrollment.mjs && node --check lib/sharing.mjs && node --check public/sharing.js && node --check public/app.js && node --check public/workspace.js",
+    "check": "node --check server.mjs && node --check lib/store.mjs && node --check lib/contact.mjs && node --check lib/enrollment.mjs && node --check lib/sharing.mjs && node --check lib/twilio/provider.mjs && node --check lib/twilio/provider-errors.mjs && node --check lib/invitation-sms.mjs && node --check public/sharing.js && node --check public/app.js && node --check public/workspace.js",
     "backup": "node scripts/backup.mjs",
     "account": "node scripts/account.mjs"
+  },
+  "dependencies": {
+    "twilio": "5.8.2"
   }
 }
