@@ -56,15 +56,19 @@ The account command creates the sole owner account. Running it again changes the
 
 ## Share a board
 
-Create an account for each person before inviting them. For an installer deployment, run the following in the installation directory and enter the member’s username and password at the prompts.
+Open a board and select **Share**. Enter an email address or mobile number, choose **View** or **Edit**, and select **Invite**. Daybook creates a pending account for a new contact and reuses that account on subsequent invitations. Ten-digit mobile numbers default to +1. Include the country code for other numbers. Existing Daybook usernames also work.
+
+For a new contact, select **Email invitation** or **Text invitation** to open an addressed draft in your mail or messaging app. Send it to the recipient. It contains a board link and a separate setup code valid for 30 minutes. The recipient opens the link, enters their contact and code, and chooses a password. This signs them in and opens the shared board.
+
+For an existing account, use **Share invitation** or **Copy link**. The recipient signs in and accepts from the link or the sidebar. Accepted boards appear under **Shared with me**. For a delegated invitation to a first-time member, the workspace owner opens **People with access** and selects **Prepare setup message**. Only the owner may issue a first-time account code. Preparing another message replaces the previous code for that invitation.
+
+Accounts may also be provisioned or reset from the installation directory:
 
 ```bash
 docker compose -p daybook -f compose.yaml -f compose.install.yaml exec daybook node scripts/account.mjs --member
 ```
 
 For local development use `npm run account -- --member`. Running the member command with an existing member’s username resets that member’s password.
-
-Open the board and select **Share**. Enter the recipient’s Daybook username, choose **View** or **Edit**, and select **Invite**. Use **Share invitation** or **Copy link** to deliver the invitation. The recipient signs in to that account and accepts the invitation from the link or sidebar. Accepted boards appear under **Shared with me**.
 
 The owner may enable **Sharing Allowed** for either permission. View members with sharing enabled may invite viewers. Edit members with sharing enabled may invite viewers or editors. Under **People with access**, the owner may adjust permissions, cancel a pending invitation, or remove one member. Removing a member preserves other accepted memberships and cancels that member’s outstanding invitations. Only the owner may invite a removed member back.
 

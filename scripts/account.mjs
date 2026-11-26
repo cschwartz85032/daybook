@@ -3,16 +3,20 @@ import { resolve } from 'node:path';
 import { createInterface, emitKeypressEvents } from 'node:readline';
 import { openStore } from '../lib/store.mjs';
 import { passwordHash, token } from '../lib/auth.mjs';
+import { contactAddress } from '../lib/contact.mjs';
 
 export async function setAccount(dbPath, username, password, { member = false } = {}) {
-  if (!/^[a-zA-Z0-9._@-]{1,80}$/.test(username)) throw new Error('Use a username with letters, numbers, dots, dashes, @, or underscores.');
+  const address=contactAddress(username)?.address;
+  if (!address && !/^[a-zA-Z0-9._@-]{1,80}$/.test(username)) throw new Error('Enter a username, email address, or mobile number.');
   if (typeof password !== 'string' || password.length < 14 || password.length > 1024) throw new Error('Use a password with 14–1024 characters.');
   const store = openStore(dbPath);
   try {
     const salt = token(); const hash = await passwordHash(password, salt);
     store.transaction(() => {
       const owner = store.get('SELECT user_id FROM workspace_owner');
-      const existing = store.get('SELECT id FROM users WHERE username=?',username);
+      const exact = store.get('SELECT id FROM users WHERE username=?',username);
+      if (!exact && member && address) username=address;
+      const existing = exact || store.get('SELECT id FROM users WHERE username=?',username);
       if (member && !owner) throw new Error('Create the owner account first.');
       if (member && existing?.id === owner?.user_id) throw new Error('Use the owner account command for this username.');
       if (!member && existing && existing.id !== owner?.user_id) throw new Error('That username belongs to a member.');
@@ -20,6 +24,8 @@ export async function setAccount(dbPath, username, password, { member = false } 
       store.run(`INSERT INTO users(id,username,salt,password_hash) VALUES(?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET username=excluded.username,salt=excluded.salt,password_hash=excluded.password_hash`,id,username,salt,hash);
       if (!member && !owner) store.run('INSERT INTO workspace_owner VALUES(1,?)',id);
+      store.run('DELETE FROM pending_accounts WHERE user_id=?',id);
+      store.run('DELETE FROM setup_codes WHERE invitation_id IN (SELECT id FROM board_members WHERE user_id=?)',id);
       store.run('DELETE FROM sessions WHERE user_id=?',id);
     });
   } finally { store.db.close(); }
