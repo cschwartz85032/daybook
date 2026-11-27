@@ -230,6 +230,9 @@ dialog{border:0;border-radius:9px;box-shadow:0 15px 65px #0003;padding:0;color:i
 .share-person details[open]>summary>svg{transform:rotate(90deg)}
 .share-identity{display:grid;gap:3px;min-width:0}.share-identity small,.share-status{font-size:12px;line-height:1.45;color:var(--muted)}
 .share-status{margin:7px 0 0}
+.sms-consent{margin:10px 0;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.sms-consent blockquote{margin:6px 0;padding:2px 10px;border-left:3px solid var(--line);color:var(--muted)}
+.sms-consent .sharing-check{align-items:baseline}
 .share-person-settings{display:grid;justify-items:start;gap:10px;padding:9px 8px 14px 41px}
 .share-permissions,.share-delivery-actions,.invite-delivery{flex-wrap:wrap}
 .share-permissions{align-items:end}.share-permissions .field{min-width:88px}

@@ -79,6 +79,10 @@ Set `DAYBOOK_TWILIO_ACCOUNT_SID` and `DAYBOOK_TWILIO_AUTH_TOKEN` in the installa
 
 Each invitation supplies its own delivery callback under `PUBLIC_URL`. The reverse proxy must forward POST requests to that URL. Daybook verifies Twilio's signature before recording a status. Unconfirmed sends can be checked in the Share panel before resending. Setup codes go directly to the recipient.
 
+Before sending or resending an invitation text, the inviter reads the disclosure to the recipient and records their agreement in Share. Daybook records the disclosure, inviter, recipient account, and time for each submission.
+
+For a server-only SMS program, create an `sms-program` directory beside the SQLite database and restart Daybook. While the sender is offline, mobile invitations stay pending for an explicit send when it becomes available. To publish the operator’s program notices, install `terms.html`, `privacy.html`, and `invitations.html` in that directory. Daybook serves them at `sms/terms`, `sms/privacy`, and `sms/invitations` under the workspace URL. A demonstration screenshot named `share.png` can accompany the invitation instructions. Use demonstration accounts for any public screenshot.
+
 The sender and error handling in `lib/twilio` are adapted from LoanServe’s MIT-licensed `server/services/sms-provider-factory.ts`, `server/communications/sms/provider-errors.ts` and `server/webhooks/twilio-request.ts` at revision `70ecf319`.
 
 ## Backups and restore

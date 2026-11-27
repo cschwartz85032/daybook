@@ -33,6 +33,13 @@ function roleSelect(role, allowEdit, label) {
 function sharingCheckbox(checked) {
   return `<label class="sharing-check"><input type="checkbox" name="sharing" ${checked?'checked':''}> Sharing Allowed</label>`;
 }
+function smsConfirmation() {
+  const script=esc(data.sms_disclosure);
+  return `<div class="sms-consent"><p>Read this to the recipient before sending a text.</p>
+    <blockquote>${script}</blockquote>
+    ${data.sms_program?'<p><a href="./sms/terms" target="_blank" rel="noopener">SMS terms</a> · <a href="./sms/privacy" target="_blank" rel="noopener">Privacy</a></p>':''}
+    <label class="sharing-check"><input type="checkbox" name="sms_consent"> ${esc(data.sms_consent_notice)}</label></div>`;
+}
 function invitationUrl(boardId,id) {
   const url = new URL('./',location.href);
   url.searchParams.set('board',boardId);
@@ -64,8 +71,8 @@ function textStatus(sms) {
 function memberRow(person,owner) {
   const pending=person.state==='pending';
   const permission=person.role==='edit'?'Edit':'View';
-  const canPrepare=owner && pending && person.needs_setup && (!person.sms || !data.sms_enabled || person.sms.manual_setup);
   const phone=person.username.startsWith('+');
+  const canPrepare=owner && pending && person.needs_setup && !(phone && data.server_sms_only) && (!person.sms || !data.sms_enabled || person.sms.manual_setup);
   return `<form class="share-person" data-member="${esc(person.id)}">
     <details><summary class="share-person-line">
       <span class="avatar small" aria-hidden="true">${phone?icon('person'):initial(person.username)}</span>
@@ -76,9 +83,10 @@ function memberRow(person,owner) {
         ${owner?`<div class="share-permissions"><label class="field">Permission${roleSelect(person.role,true,'Permission for '+person.username)}</label>${sharingCheckbox(person.sharing)}
           <button class="secondary" type="submit" disabled>Save</button></div>`:''}
         ${person.sms?`<p class="share-status" role="status">${esc(textStatus(person.sms))}</p>`:''}
+        ${pending && person.sms && data.sms_enabled?smsConfirmation():''}
         ${pending?`<div class="share-delivery-actions">
           ${canPrepare?`<button class="secondary" type="button" data-issue-code>${phone?'Prepare text message':'Prepare email'}</button>`:''}
-          ${person.sms && data.sms_enabled?`<button class="secondary" type="button" data-send-text>${person.sms.state==='unsent'?'Send text':'Resend text'}</button>`:''}
+          ${person.sms && data.sms_enabled?`<button class="secondary" type="button" data-send-text disabled>${person.sms.state==='unsent'?'Send text':'Resend text'}</button>`:''}
           ${deliveryButtons(person.id)}</div>`:''}
         ${owner?`<button class="quiet-link danger" type="button" data-remove>${pending?'Cancel invitation':'Remove access'}</button>`:''}
       </div></details></form>`;
@@ -93,7 +101,7 @@ async function openSharing(board, issued) {
     <div class="dialog-body"><form id="board-invite">
       <div class="share-fields"><label class="field">Email or mobile number<input name="contact" required maxlength="254" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="Enter an email or phone number"></label>
       <label class="field">Permission ${roleSelect('view',board.role!=='view','Invitation permission')}</label></div>
-      ${data.sms_enabled?'<p class="share-status">Mobile invitations are sent by text.</p>':''}
+      <div data-mobile-delivery hidden>${data.sms_enabled?smsConfirmation():data.server_sms_only?'<p class="share-status">Text delivery is awaiting sender registration. You can save this invitation and send the text when delivery becomes available.</p>':''}</div>
       <div class="share-invite-actions">${owner?sharingCheckbox(false):''}<button class="primary" type="submit">${icon('plus')}Invite</button></div></form>
     ${issued?`<section class="invite-ready" role="status"><strong>Invitation ready for ${esc(issued.contact)}</strong>
       ${issued.sms?`<p>${esc(textStatus(issued.sms))}</p>`:issued.setup?setupDelivery(board,issued.id,issued.setup):issued.needs_setup?'<p>The board owner can send the setup code from People with access.</p>':''}
@@ -116,13 +124,20 @@ async function openSharing(board, issued) {
   if (refreshStatus) refreshStatus.onclick=()=>openSharing(board).catch(e=>{ error.textContent=e.message; });
   $('[data-dismiss]',dialog).onclick = () => dialog.close();
   const invite = $('#board-invite',dialog);
+  const mobileDelivery=$('[data-mobile-delivery]',invite);
+  invite.elements.contact.oninput=()=>{
+    const contact=invite.elements.contact.value.trim();
+    mobileDelivery.hidden=!/^\+?[\d\s().-]+$/.test(contact);
+    const consent=invite.elements.sms_consent;
+    if (consent) { consent.checked=false; consent.required=!mobileDelivery.hidden; }
+  };
   invite.onsubmit = async event => {
     event.preventDefault();
     const submit = $('button[type=submit]',invite);
     submit.disabled = true;
     try {
       const contact = invite.elements.contact.value.trim();
-      const result = await api(`lists/${board.id}/members`,'POST',{contact,role:invite.elements.role.value,sharing:!!invite.elements.sharing?.checked});
+      const result = await api(`lists/${board.id}/members`,'POST',{contact,role:invite.elements.role.value,sharing:!!invite.elements.sharing?.checked,sms_consent:!!invite.elements.sms_consent?.checked});
       await openSharing(board,{contact,...result});
       $('.invite-ready a,.invite-ready button',dialog)?.focus();
     } catch (e) { error.textContent=e.message; submit.disabled=false; }
@@ -131,13 +146,14 @@ async function openSharing(board, issued) {
     const save = $('button[type=submit]',form);
     const person = people.find(p=>p.id===form.dataset.member);
     const resend=$('[data-send-text]',form);
+    if (resend) form.elements.sms_consent.onchange=event=>{resend.disabled=!event.target.checked;};
     if (resend) resend.onclick=async()=>{
       resend.disabled=true;
       try {
-        const status=await api(`lists/${board.id}/members/${person.id}/text`,'POST',{});
+        const status=await api(`lists/${board.id}/members/${person.id}/text`,'POST',{sms_consent:form.elements.sms_consent.checked});
         await openSharing(board);
         notify(textStatus(status));
-      } catch (e) { error.textContent=e.message; resend.disabled=false; }
+      } catch (e) { error.textContent=e.message; form.elements.sms_consent.checked=false; resend.disabled=true; }
     };
     if (!owner) { form.onsubmit=e=>e.preventDefault(); continue; }
     const setupButton = $('[data-issue-code]',form);
@@ -149,7 +165,7 @@ async function openSharing(board, issued) {
         $('.account-delivery a',form)?.focus();
       } catch (e) { error.textContent=e.message; setupButton.disabled=false; }
     };
-    form.onchange = () => { save.disabled = false; };
+    form.onchange = event => { if (['role','sharing'].includes(event.target.name)) save.disabled=false; };
     async function change(changes) {
       try {
         await api(`lists/${board.id}/members/${person.id}`,'PATCH',changes);
