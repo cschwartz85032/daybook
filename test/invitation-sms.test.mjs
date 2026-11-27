@@ -7,7 +7,7 @@ import twilio from 'twilio';
 import {createApp} from '../server.mjs';
 import {setAccount} from '../scripts/account.mjs';
 import {twilioProvider} from '../lib/twilio/provider.mjs';
-import {mobileAccount,smsConsentNotice} from '../lib/invitation-sms.mjs';
+import {invitationText,mobileAccount,smsConsentNotice} from '../lib/invitation-sms.mjs';
 
 const settings={
   DAYBOOK_TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),
@@ -15,6 +15,17 @@ const settings={
   DAYBOOK_TWILIO_MESSAGING_SERVICE_SID:'MG'+'b'.repeat(32),
   DAYBOOK_TWILIO_FROM_NUMBER:'+16025550100',
 };
+
+test('registered operator appears in both invitation text variants',()=>{
+  const link='https://daybook.example/?board=demo&invite=example';
+  for (const code of ['123-456',undefined]) {
+    const message=invitationText('Example, LLC','Alex',link,code);
+    assert.ok(message.startsWith('Daybook (Example, LLC): Alex invited you to a shared board.'));
+    assert.ok(message.includes(link) && message.endsWith('Reply STOP to opt out.'));
+    if (code) assert.match(message,/Set up your Daybook account: .*Setup code: 123-456 \(expires in 30 minutes\)/);
+    else assert.match(message,/Sign in to Daybook to accept:/);
+  }
+});
 
 test('Twilio uses the configured sender and leaves unconfigured installations on manual delivery',async()=>{
   assert.equal(twilioProvider({}),null);

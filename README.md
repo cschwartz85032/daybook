@@ -85,6 +85,8 @@ For a server-only SMS program, create an `sms-program` directory beside the SQLi
 
 The sender and error handling in `lib/twilio` are adapted from LoanServe’s MIT-licensed `server/services/sms-provider-factory.ts`, `server/communications/sms/provider-errors.ts` and `server/webhooks/twilio-request.ts` at revision `70ecf319`.
 
+To identify the registered business in invitation texts, place its name on one line in `sms-program/operator.txt` and restart Daybook. The sender then appears as “Daybook (business name)” in both new-account and existing-account invitations.
+
 ## Backups and restore
 
 Create a consistent, integrity-checked SQLite backup:
