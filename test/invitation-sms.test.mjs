@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import twilio from 'twilio';
 import {createApp} from '../server.mjs';
 import {setAccount} from '../scripts/account.mjs';
 import {twilioProvider} from '../lib/twilio/provider.mjs';
-import {mobileAccount} from '../lib/invitation-sms.mjs';
+import {mobileAccount,smsConsentNotice} from '../lib/invitation-sms.mjs';
 
 const settings={
   DAYBOOK_TWILIO_ACCOUNT_SID:'AC'+'a'.repeat(32),
@@ -70,15 +70,26 @@ test('mobile invites, signed delivery receipts, resends and activation through t
   const codeOf=message=>message.body.match(/Setup code: ([A-F0-9-]+)/)[1];
   const activate=(id,contact,code)=>call('invitations/'+id+'/activate',{contact,code,password});
   const invite=async(path,body,actor)=>{
-    const res=await call(path,body,actor);
+    const res=await call(path,{sms_consent:true,...body},actor);
     assert.equal(res.status,201);
     return res.json();
   };
+  for (const sms_consent of [undefined,false,'true']) {
+    assert.equal((await call(members,{contact:delegateNumber,sms_consent},owner)).status,400);
+  }
+  assert.equal(app.store.get('SELECT count(*) AS n FROM users WHERE username=?',delegateNumber).n,0);
+  assert.equal(app.store.get('SELECT count(*) AS n FROM board_members').n,0);
+  assert.equal(messages.length,0);
   onSubmit=async message=>{assert.equal((await receipt(message,'delivered')).status,204);};
   const delegateInvite=await invite(members,{contact:'(602) 555-0101',role:'view',sharing:true},owner);
   assert.equal(delegateInvite.sms.state,'delivered');
   assert.equal(delegateInvite.setup,undefined);
   assert.equal(messages[0].to,delegateNumber);
+  assert.match(messages[0].body,/Daybook: owner invited you/);
+  assert.match(messages[0].body,/Reply STOP to opt out/);
+  const audit=app.store.get('SELECT t.*,u.username FROM invitation_texts t JOIN users u ON u.id=t.actor WHERE invitation_id=?',delegateInvite.id);
+  assert.equal(audit.username,'owner');
+  assert.ok(audit.consent_notice.includes(smsConsentNotice) && audit.consent_notice.includes('Message and data rates'));
   assert.ok(messages[0].body.includes(origin+'/boards/?board='+board.id+'&invite='+delegateInvite.id));
   const delegate=await login(await activate(delegateInvite.id,delegateNumber,codeOf(messages[0])));
   onSubmit=undefined;
@@ -87,7 +98,8 @@ test('mobile invites, signed delivery receipts, resends and activation through t
   assert.equal(child.sms.state,'queued');
   assert.equal(child.setup,undefined);
   const resend=members+'/'+child.id+'/text';
-  assert.equal((await call(resend,{},delegate)).status,429);
+  assert.equal((await call(resend,{},delegate)).status,400);
+  assert.equal((await call(resend,{sms_consent:true},delegate)).status,429);
   assert.equal((await call(members+'/'+child.id+'/setup-code',{},owner)).status,409);
   assert.deepEqual((await (await call(members,undefined,delegate)).json()).map(m=>m.id),[child.id]);
   const message=messages[1];
@@ -103,7 +115,7 @@ test('mobile invites, signed delivery receipts, resends and activation through t
   assert.match(person.sms.reason,/opted out/);
   const ageAttempts=()=>app.store.run('UPDATE invitation_texts SET created_at=created_at-61000');
   ageAttempts();
-  const reply=await call(resend,{to:'+16025550999',body:'ignored'},delegate);
+  const reply=await call(resend,{sms_consent:true,to:'+16025550999',body:'ignored'},delegate);
   assert.equal((await reply.json()).state,'queued');
   assert.equal(messages[2].to,recipient);
   assert.equal((await activate(child.id,recipient,codeOf(message))).status,400);
@@ -113,7 +125,7 @@ test('mobile invites, signed delivery receipts, resends and activation through t
   assert.equal(existing.needs_setup,false);
   assert.equal(existing.sms.state,'limited');
   ageAttempts();
-  await call(others+'/'+existing.id+'/text',{},owner);
+  await call(others+'/'+existing.id+'/text',{sms_consent:true},owner);
   assert.doesNotMatch(messages.at(-1).body,/Setup code/);
   onSubmit=()=>{throw Object.assign(new Error('Private provider details'),{status:400,code:21614});};
   const failure=await invite(members,{contact:'+16025550103'},owner);
@@ -136,4 +148,31 @@ test('mobile invites, signed delivery receipts, resends and activation through t
   const codeRoute=members+'/'+blocked.id+'/setup-code';
   assert.equal((await call(codeRoute,{},delegate)).status,403);
   assert.ok((await (await call(codeRoute,{},owner)).json()).code);
+});
+
+test('serves operator notices publicly under the workspace path and saves mobile invitations while the sender is offline',async t=>{
+  const dir=mkdtempSync(join(tmpdir(),'daybook-program-')),dbPath=join(dir,'test.sqlite');
+  mkdirSync(join(dir,'sms-program'));
+  for (const page of ['terms','privacy','invitations']) writeFileSync(join(dir,'sms-program',page+'.html'),page);
+  await setAccount(dbPath,'owner','A Daybook test password');
+  const app=createApp({dbPath,smsProvider:null,publicUrl:'http://example.test/work'});
+  await new Promise(r=>app.server.listen(0,'127.0.0.1',r));
+  t.after(async()=>{await new Promise(r=>app.server.close(r));app.store.db.close();rmSync(dir,{recursive:true,force:true});});
+  const base='http://127.0.0.1:'+app.server.address().port+'/work/';
+  for (const page of ['terms','privacy','invitations']) {
+    const response=await fetch(base+'sms/'+page);
+    assert.equal(response.status,200);
+    assert.equal(await response.text(),page);
+  }
+  const post=(path,body,headers={})=>fetch(base+'api/'+path,{method:'POST',headers:{Origin:'http://example.test','Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+  const login=await post('login',{username:'owner',password:'A Daybook test password'});
+  const headers={Cookie:login.headers.get('set-cookie').split(';')[0],'X-CSRF-Token':(await login.json()).csrf};
+  const state=await (await fetch(base+'api/data',{headers})).json();
+  assert.ok(state.sms_program && state.server_sms_only && !state.sms_enabled);
+  assert.match(state.sms_disclosure,/http:\/\/example.test\/work\/sms\/terms/);
+  const members='lists/'+state.lists[0].id+'/members';
+  const invite=await (await post(members,{contact:'+16025550100'},headers)).json();
+  assert.equal(invite.setup,undefined);
+  assert.equal(invite.sms.state,'unsent');
+  assert.equal((await post(members+'/'+invite.id+'/setup-code',{},headers)).status,409);
 });

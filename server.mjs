@@ -1,6 +1,6 @@
 import { boardAccess } from './lib/sharing.mjs';
 import { twilioProvider } from './lib/twilio/provider.mjs';
-import { invitationSms, mobileAccount, smsCallbackPath } from './lib/invitation-sms.mjs';
+import { invitationSms, mobileAccount, smsCallbackPath, smsConsentNotice, smsDisclosure } from './lib/invitation-sms.mjs';
 import { contactAddress } from './lib/contact.mjs';
 import { issueSetupCode, pendingInvitation, verifySetupCode } from './lib/enrollment.mjs';
 import http from 'node:http';
@@ -20,8 +20,14 @@ export function createApp(options = {}) {
   if (publicUrl.search || publicUrl.hash || publicUrl.username || publicUrl.password) throw new Error('PUBLIC_URL must contain only an origin and optional path.');
   const base = publicUrl.pathname.replace(/\/$/, '');
   const smsProvider = options.smsProvider === undefined ? twilioProvider() : options.smsProvider;
-  const store = openStore(options.dbPath || process.env.DB_PATH || resolve(root, 'data/daybook.sqlite'), options.timeZone || process.env.APP_TIMEZONE || 'America/Phoenix');
-  const texts = invitationSms(store,smsProvider,publicUrl);
+  const dbPath=options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite');
+  const store = openStore(dbPath, options.timeZone || process.env.APP_TIMEZONE || 'America/Phoenix');
+  const programDir=resolve(dirname(dbPath),'sms-program');
+  const programPages=['terms','privacy','invitations'];
+  const hasProgram=programPages.every(page=>existsSync(resolve(programDir,page+'.html')));
+  const serverSmsOnly=existsSync(programDir);
+  const disclosure=smsDisclosure(publicUrl,hasProgram);
+  const texts = invitationSms(store,smsProvider,publicUrl,disclosure);
   const assetRoot = existsSync(resolve(root, 'monday-assets')) ? resolve(root, 'monday-assets') : resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'monday-assets');
   const uploadRoot = resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'upload-assets');
   mkdirSync(uploadRoot,{recursive:true,mode:0o700});
@@ -40,6 +46,11 @@ export function createApp(options = {}) {
   const cookie = (value, maxAge) => `${cookieName}=${value}; Path=${base || '/'}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${publicUrl.protocol === 'https:' ? '; Secure' : ''}`;
   const staticFiles = new Map([['/', ['index.html', 'text/html; charset=utf-8']], ['/app.js', ['app.js', 'text/javascript; charset=utf-8']], ['/sharing.js',['sharing.js','text/javascript; charset=utf-8']], ['/workspace.js', ['workspace.js', 'text/javascript; charset=utf-8']], ['/style.css', ['style.css', 'text/css; charset=utf-8']], ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]].map(([url, [file, type]]) => [url, { body: readFileSync(resolve(root, 'public', file)), type }]));
   const maxBody = 8 * 1024 * 1024;
+  if (hasProgram) {
+    for (const page of programPages) staticFiles.set('/sms/'+page,{body:readFileSync(resolve(programDir,page+'.html')),type:'text/html; charset=utf-8'});
+    const screenshot=resolve(programDir,'share.png');
+    if (existsSync(screenshot)) staticFiles.set('/sms/share.png',{body:readFileSync(screenshot),type:'image/png'});
+  }
   async function receiveStatus(req,res,url,attempt) {
     if (!smsProvider) throw new InputError('Not found.',404);
     if (req.headers['content-type']?.split(';')[0].trim() !== 'application/x-www-form-urlencoded') throw new InputError('Expected form data.',415);
@@ -213,7 +224,8 @@ export function createApp(options = {}) {
       if (path === '/api/logout' && method === 'POST') { store.run('DELETE FROM sessions WHERE token_hash=?', auth.token_hash); send(res, 200, { ok: true }, { 'Set-Cookie': cookie('', 0) }); return; }
       if (path === '/api/data' && method === 'GET') {
         if (access.owner) store.runScheduledAutomations();
-        send(res,200,{...access.snapshot(false),sms_enabled:Boolean(smsProvider)}); return;
+        send(res,200,{...access.snapshot(false),sms_enabled:Boolean(smsProvider),sms_program:hasProgram,server_sms_only:serverSmsOnly,
+          sms_consent_notice:smsConsentNotice,sms_disclosure:disclosure}); return;
       }
       if (path === '/api/preferences/last-board' && method === 'PATCH') {
         access.board(input.list_id,'open');
@@ -228,7 +240,8 @@ export function createApp(options = {}) {
       if (method==='POST' && codeRoute) {
         access.board(codeRoute[1],'owner');
         const pending=pendingInvitation(store,codeRoute[2]);
-        if (pending?.list_id===codeRoute[1] && smsProvider && mobileAccount(pending.username) && !texts.latest(pending.id)?.manual_setup) throw new InputError('Use Resend text for this invitation.',409);
+        if (pending?.list_id===codeRoute[1] && mobileAccount(pending.username) &&
+            (serverSmsOnly || (smsProvider && !texts.latest(pending.id)?.manual_setup))) throw new InputError('Use Daybook text delivery for this invitation.',409);
         send(res,200,issueSetupCode(store,codeRoute[1],codeRoute[2])); return;
       }
       const textRoute=path.match(/^\/api\/lists\/([a-z0-9-]+)\/members\/([a-z0-9-]+)\/text$/i);
@@ -237,7 +250,7 @@ export function createApp(options = {}) {
         const allowed=access.board(boardId,'share');
         const pending=pendingInvitation(store,id);
         if (pending?.list_id!==boardId || (!access.owner && (pending.invited_by!==auth.user_id || (pending.role==='edit' && allowed.role!=='edit')))) throw new InputError('Invitation unavailable.',404);
-        send(res,200,await texts.send(boardId,id,auth.user_id)); return;
+        send(res,200,await texts.send(boardId,id,auth,input.sms_consent)); return;
       }
       const members = path.match(/^\/api\/lists\/([a-z0-9-]+)\/members(?:\/([a-z0-9-]+))?$/i);
       if (members) {
@@ -253,15 +266,16 @@ export function createApp(options = {}) {
           send(res,200,people); return;
         }
         if (!member && method === 'POST') {
-          const result=access.invite(id,input);
+          const result=access.invite(id,input,Boolean(smsProvider));
           const pending=pendingInvitation(store,result.id);
           if (smsProvider && mobileAccount(pending?.username)) {
-            try { result.sms=await texts.send(id,result.id,auth.user_id); }
+            try { result.sms=await texts.send(id,result.id,auth,input.sms_consent); }
             catch (error) {
               if (error.status!==429) throw error;
               result.sms={state:'limited',reason:error.message};
             }
-          } else if (result.needs_setup && access.owner) result.setup=issueSetupCode(store,id,result.id);
+          } else if (serverSmsOnly && mobileAccount(pending?.username)) result.sms={state:'unsent'};
+          else if (result.needs_setup && access.owner) result.setup=issueSetupCode(store,id,result.id);
           send(res,201,result); return;
         }
         if (member && method === 'PATCH') { access.manage(id,member,input); send(res,200,{ok:true}); return; }
