@@ -215,6 +215,12 @@ export function createApp(options = {}) {
         if (access.owner) store.runScheduledAutomations();
         send(res,200,{...access.snapshot(false),sms_enabled:Boolean(smsProvider)}); return;
       }
+      if (path === '/api/preferences/last-board' && method === 'PATCH') {
+        access.board(input.list_id,'open');
+        store.run(`INSERT INTO last_open_boards(user_id,list_id) VALUES(?,?)
+          ON CONFLICT(user_id) DO UPDATE SET list_id=excluded.list_id`,auth.user_id,input.list_id);
+        send(res,200,{ok:true}); return;
+      }
       if (path === '/api/export' && method === 'GET') {
         send(res,200,access.snapshot(true),{'Content-Disposition':`attachment; filename="daybook-${new Date().toISOString().slice(0,10)}.json"`}); return;
       }
@@ -222,7 +228,7 @@ export function createApp(options = {}) {
       if (method==='POST' && codeRoute) {
         access.board(codeRoute[1],'owner');
         const pending=pendingInvitation(store,codeRoute[2]);
-        if (pending?.list_id===codeRoute[1] && smsProvider && mobileAccount(pending.username)) throw new InputError('Use Resend text for this invitation.',409);
+        if (pending?.list_id===codeRoute[1] && smsProvider && mobileAccount(pending.username) && !texts.latest(pending.id)?.manual_setup) throw new InputError('Use Resend text for this invitation.',409);
         send(res,200,issueSetupCode(store,codeRoute[1],codeRoute[2])); return;
       }
       const textRoute=path.match(/^\/api\/lists\/([a-z0-9-]+)\/members\/([a-z0-9-]+)\/text$/i);
@@ -238,8 +244,9 @@ export function createApp(options = {}) {
         const [,id,member] = members;
         if (!member && method === 'GET') {
           const people=access.people(id,Boolean(smsProvider)).map(person=>{
-            if (smsProvider && person.state==='pending' && mobileAccount(person.username)) {
-              return {...person,sms:texts.latest(person.id) || {state:'unsent'}};
+            if (person.state==='pending' && mobileAccount(person.username)) {
+              const sms=texts.latest(person.id);
+              if (sms || smsProvider) return {...person,sms:sms || {state:'unsent'}};
             }
             return person;
           });

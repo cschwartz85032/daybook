@@ -41,8 +41,8 @@ function invitationUrl(boardId,id) {
 }
 function deliveryButtons(id) {
   return `<div class="invite-delivery" data-invitation="${esc(id)}">
-    ${navigator.share ? '<button class="secondary" type="button" data-deliver="share">Share invitation</button>' : ''}
-    <button class="secondary" type="button" data-deliver="copy">Copy link</button></div>`;
+    ${navigator.share ? `<button class="text-button" type="button" data-deliver="share">${icon('upload')}Share invitation</button>` : ''}
+    <button class="text-button" type="button" data-deliver="copy">${icon('link')}Copy link</button></div>`;
 }
 function setupDelivery(board,id,setup) {
   const link=invitationUrl(board.id,id);
@@ -62,36 +62,47 @@ function textStatus(sms) {
   return [labels[sms.state],sms.reason].filter(Boolean).join(' ');
 }
 function memberRow(person,owner) {
+  const pending=person.state==='pending';
+  const permission=person.role==='edit'?'Edit':'View';
+  const canPrepare=owner && pending && person.needs_setup && (!person.sms || !data.sms_enabled || person.sms.manual_setup);
+  const phone=person.username.startsWith('+');
   return `<form class="share-person" data-member="${esc(person.id)}">
-    <div><strong>${esc(person.username)}</strong><small>${person.state==='pending'?'Pending · ':''}Invited by ${esc(person.inviter)}</small></div>
-    ${owner?`<div class="share-controls">${roleSelect(person.role,true,'Permission for '+person.username)}${sharingCheckbox(person.sharing)}</div>
-    <div class="share-controls"><button class="secondary" type="submit" disabled>Save</button>
-      <button class="quiet-link danger" type="button" data-remove>${person.state==='pending'?'Cancel invitation':'Remove access'}</button></div>`:''}
-    ${person.state==='pending'?deliveryButtons(person.id):''}
-    ${person.sms?`<small role="status">${esc(textStatus(person.sms))}</small>
-      <button class="secondary" type="button" data-send-text>${person.sms.state==='unsent'?'Send text':'Resend text'}</button>`
-      :owner&&person.needs_setup&&person.state==='pending'?'<button class="secondary" type="button" data-issue-code>Prepare setup message</button>':''}</form>`;
+    <details><summary class="share-person-line">
+      <span class="avatar small" aria-hidden="true">${phone?icon('person'):initial(person.username)}</span>
+      <span class="share-identity"><strong>${esc(person.username)}</strong>
+        <small>${pending?'Pending invitation':'Invited by '+esc(person.inviter)}${person.sharing?' · Sharing Allowed':''}</small></span>
+      <span class="share-role">${permission}</span>${icon('chevron')}</summary>
+      <div class="share-person-settings">
+        ${owner?`<div class="share-permissions"><label class="field">Permission${roleSelect(person.role,true,'Permission for '+person.username)}</label>${sharingCheckbox(person.sharing)}
+          <button class="secondary" type="submit" disabled>Save</button></div>`:''}
+        ${person.sms?`<p class="share-status" role="status">${esc(textStatus(person.sms))}</p>`:''}
+        ${pending?`<div class="share-delivery-actions">
+          ${canPrepare?`<button class="secondary" type="button" data-issue-code>${phone?'Prepare text message':'Prepare email'}</button>`:''}
+          ${person.sms && data.sms_enabled?`<button class="secondary" type="button" data-send-text>${person.sms.state==='unsent'?'Send text':'Resend text'}</button>`:''}
+          ${deliveryButtons(person.id)}</div>`:''}
+        ${owner?`<button class="quiet-link danger" type="button" data-remove>${pending?'Cancel invitation':'Remove access'}</button>`:''}
+      </div></details></form>`;
 }
 async function openSharing(board, issued) {
   closePopover();
   const people = await api(`lists/${board.id}/members`);
   const owner = board.role === 'owner';
   const dialog = $('#share-dialog');
-  dialog.innerHTML = `<div class="dialog-head"><div><h2 id="share-title">Share board</h2><small>${esc(board.name)}</small></div>
+  dialog.innerHTML = `<div class="dialog-head"><div class="share-title-group"><span class="share-board-icon">${icon('board')}</span><div><h2 id="share-title">Share board</h2><p class="automation-subtitle">${esc(board.name)}</p></div></div>
     <button type="button" class="icon-button" aria-label="Close" data-dismiss>${icon('close')}</button></div>
     <div class="dialog-body"><form id="board-invite">
-      <label class="field">Email or mobile number<input name="contact" required maxlength="254" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="name@example.com or +1 602 555 0123"></label>
-      ${data.sms_enabled?'<small>Daybook texts the invitation when you enter a mobile number.</small>':''}
-      <div class="share-controls"><label class="field">Permission ${roleSelect('view',board.role!=='view','Invitation permission')}</label>
-      ${owner?sharingCheckbox(false):''}</div>
-      <button class="primary" type="submit">Invite</button></form>
+      <div class="share-fields"><label class="field">Email or mobile number<input name="contact" required maxlength="254" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="Enter an email or phone number"></label>
+      <label class="field">Permission ${roleSelect('view',board.role!=='view','Invitation permission')}</label></div>
+      ${data.sms_enabled?'<p class="share-status">Mobile invitations are sent by text.</p>':''}
+      <div class="share-invite-actions">${owner?sharingCheckbox(false):''}<button class="primary" type="submit">${icon('plus')}Invite</button></div></form>
     ${issued?`<section class="invite-ready" role="status"><strong>Invitation ready for ${esc(issued.contact)}</strong>
       ${issued.sms?`<p>${esc(textStatus(issued.sms))}</p>`:issued.setup?setupDelivery(board,issued.id,issued.setup):issued.needs_setup?'<p>The board owner can send the setup code from People with access.</p>':''}
       ${deliveryButtons(issued.id)}</section>`:''}
-    ${owner || people.length?`<section class="share-people"><h3>${owner?'People with access':'Your pending invitations'}</h3>
-      ${owner?`<div class="share-owner"><strong>${esc(auth.username)}</strong><span>Owner</span></div>`:''}
+    ${owner || people.length?`<section class="share-people"><div class="automation-section-head"><h3>${owner?'People with access':'Your pending invitations'}</h3>
+      ${data.sms_enabled && people.some(person=>person.sms)?'<button class="quiet-link" type="button" data-refresh-status>Refresh text status</button>':''}</div>
+      ${owner?`<div class="share-person-line share-owner"><span class="avatar small" aria-hidden="true">${initial(auth.username)}</span><strong>${esc(auth.username)}</strong><span class="share-role">Owner</span></div>`:''}
       ${people.map(person=>memberRow(person,owner)).join('')}
-      ${people.some(person=>person.sms)?'<button class="quiet-link" type="button" data-refresh-status>Refresh text status</button>':''}</section>`:''}
+      </section>`:''}
     <div class="form-error" role="alert"></div></div>`;
   if (!dialog.open) dialog.showModal();
   dialog.onclick=async event=>{
@@ -182,9 +193,6 @@ function openInvitation(invite) {
       await refresh(false);
       small.close();
       navigate(list_id);
-      const url = new URL('./',location.href);
-      url.searchParams.set('board',list_id);
-      history.replaceState(null,'',url);
     } catch (e) { $('.form-error',small).textContent=e.message; button.disabled=false; }
   };
 }
@@ -192,11 +200,16 @@ function openInvitation(invite) {
 function openRequestedContent() {
   const query = new URLSearchParams(location.search);
   const invitation = data.invitations.find(i=>i.id===query.get('invite'));
+  const requestedBoard=listById(query.get('board'));
+  const task=data.tasks.find(t=>t.id===query.get('item'));
+  const board=task ? listById(task.list_id) : requestedBoard;
+  const available=board && !board.deleted_at;
+  const keepInvite=query.has('invite') && (invitation || !available);
+  const target=available && !keepInvite ? board.id : data.last_board_id || 'all';
+  navigate(target,{preserveLink:Boolean(keepInvite || task),remember:Boolean(available && !keepInvite)});
   if (invitation) { openInvitation(invitation); return; }
-  if (query.has('board')) {
-    const board = listById(query.get('board'));
-    if (board && !board.deleted_at) navigate(board.id);
-    else if (query.has('invite')) {
+  if (query.has('board') && (!requestedBoard || requestedBoard.deleted_at)) {
+    if (query.has('invite')) {
       infoDialog('Board invitation',`<p>This invitation is unavailable to ${esc(auth.username)}.</p><button class="secondary" id="switch-invite-account">Use another account</button>`);
       $('#switch-invite-account',small).onclick=async()=>{
         try { await api('logout','POST',{}); auth=null; small.close(); await showSignInOrSetup(); } catch (e) { handleError(e); }
@@ -204,7 +217,6 @@ function openRequestedContent() {
     } else notify('Board unavailable for this account.');
   }
   if (query.has('item')) {
-    const task = data.tasks.find(t=>t.id===query.get('item'));
     if (task) openEditor(task);
     else notify('Item unavailable for this account.');
   }
@@ -233,9 +245,6 @@ async function showSignInOrSetup() {
     try {
       const result=await api(`invitations/${id}/activate`,'POST',Object.fromEntries(new FormData(form)));
       auth={username:result.username,csrf:result.csrf};
-      const url=new URL('./',location.href);
-      url.searchParams.set('board',result.list_id);
-      history.replaceState(null,'',url);
       await refresh(false);
       navigate(result.list_id);
     } catch (error) { $('.form-error',form).textContent=error.message; submit.disabled=false; }

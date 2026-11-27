@@ -13,6 +13,7 @@ Daybook is a self-hosted board workspace for projects, routines, and everyday ta
 - Search, filters, sorting, favorites, bulk actions, recurring items, and 30-day recoverable trash. Deleted boards and items are permanently removed after 30 days, including their updates and attachments.
 - CSV/JSON import and JSON export, including source-ID deduplication for repeat imports.
 - Named board invitations with View or Edit permission, optional sharing, and individual revocation.
+- Reopen the last board you visited when you sign in on another device. Direct board, item, and invitation links open their destinations.
 - Expiring account sessions, CSRF protection, SQLite persistence, and online backups.
 
 The public repository contains the app and installer. It contains no personal boards, imported Monday data, account credentials, or uploaded attachments.
@@ -60,7 +61,7 @@ Open a board and select **Share**. Enter an email address or mobile number, choo
 
 When Twilio is configured, selecting **Invite** sends a mobile recipient a text directly from Daybook. For a new account the text contains a board link and a setup code valid for 30 minutes. The recipient enters their number and code, chooses a password, and opens the board. Existing members sign in and accept the invitation. The owner and the member who sent the invitation can check delivery status and resend a pending text. A resend replaces the previous setup code.
 
-For email invitations, or mobile invitations on installations without Twilio, the owner selects **Email invitation** or **Text invitation** to send a first-time setup message from their device. If another member created the invitation, the owner selects **Prepare setup message** under **People with access**. Existing accounts can use **Share invitation** or **Copy link**. Accepted boards appear under **Shared with me**.
+For email invitations, or mobile invitations on installations without Twilio, the owner selects **Email invitation** or **Text invitation** to send a first-time setup message from their device. If another member created the invitation, the owner expands the recipient under **People with access** and selects **Prepare email** or **Prepare text message**. Existing accounts can use **Share invitation** or **Copy link**. Accepted boards appear under **Shared with me**.
 
 Accounts may also be provisioned or reset from the installation directory:
 

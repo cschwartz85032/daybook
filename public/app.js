@@ -42,8 +42,8 @@ function notify(message, undo) {
   if (undo) $('#undo').onclick = () => { box.classList.remove('show'); undo().catch(handleError); };
   toastTimer = setTimeout(() => box.classList.remove('show'), undo ? 10000 : 4500);
 }
-async function api(path, method = 'GET', body) {
-  const response = await fetch(`./api/${path}`, { method, headers: { 'Content-Type':'application/json', ...(auth ? {'X-CSRF-Token': auth.csrf} : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+async function api(path, method = 'GET', body, {keepalive=false}={}) {
+  const response = await fetch(`./api/${path}`, { method, keepalive, headers: { 'Content-Type':'application/json', ...(auth ? {'X-CSRF-Token': auth.csrf} : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
   const result = await response.json();
   if (!response.ok) { const e = new Error(result.error || 'Request failed.'); e.status = response.status; throw e; }
   return result;
@@ -52,14 +52,14 @@ function handleError(e) {
   if (e.status === 401) { auth = null; $('#share-dialog').close(); editor.close(); small.close(); renderLogin(); }
   notify(e.message === 'Failed to fetch' ? 'Connection lost. Your changes were not saved. Please try again.' : e.message);
 }
-async function refresh(renderPage = true) { const oldBoard = listById(view); data = await api('data'); if (oldBoard && !listById(view)) { view='all'; editor.close(); small.close(); $('#share-dialog').close(); } updateIndex=new Map();for(const u of data.updates||[]){if(!updateIndex.has(u.item_source_id))updateIndex.set(u.item_source_id,[]);updateIndex.get(u.item_source_id).push(u);} if (renderPage) render(); }
+async function refresh(renderPage = true) { const oldBoard = listById(view); data = await api('data'); if (oldBoard && (!listById(view) || listById(view).deleted_at)) { view='all'; setBoardUrl(null); editor.close(); small.close(); $('#share-dialog').close(); } updateIndex=new Map();for(const u of data.updates||[]){if(!updateIndex.has(u.item_source_id))updateIndex.set(u.item_source_id,[]);updateIndex.get(u.item_source_id).push(u);} if (renderPage) render(); }
 function options(values, current) { return Object.entries(values).map(([v, label]) => `<option value="${esc(v)}" ${v === current ? 'selected' : ''}>${esc(label)}</option>`).join(''); }
 function listOptions(current) { return data.lists.filter(l=>!l.deleted_at&&(editableBoard(l.id)||l.id===current)).map(l => `<option value="${esc(l.id)}" ${l.id === current ? 'selected' : ''}>${esc(l.name)}</option>`).join(''); }
 function renderLogin() {
   app.innerHTML = `<div class="login-page"><section class="login-intro"><div class="brand">${brand()}</div><div class="login-pitch"><div class="eyebrow">WORK, YOUR WAY</div><h1>Everything you need.<br>All on one board.</h1><p>Bring your plans, projects, and everyday work together.</p><div class="login-board-art" aria-hidden="true"><div><span></span><i></i><b></b></div><div><span></span><i></i><b></b></div><div><span></span><i></i><b></b></div><div><span></span><i></i><b></b></div></div></div><div class="bottom-note">Your boards for projects and everyday plans.</div></section><main class="login-main"><form class="login-form" id="login-form"><div class="eyebrow">YOUR WORKSPACE</div><h2>Welcome back.</h2><p>Sign in to pick up where you left off.</p><label class="field">Email, mobile number, or username<input name="username" autocomplete="username" autocapitalize="none" required maxlength="254" autofocus></label><label class="field">Password<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label><div class="form-error" role="alert"></div><button class="primary" type="submit">Sign in ${icon('arrow')}</button><div class="bottom-note">${icon('lock')}Your boards. Your workspace.</div></form></main></div>`;
   $('#login-form').onsubmit = async event => {
     event.preventDefault(); const form = event.currentTarget, button = $('button', form); button.disabled = true;
-    try { auth = await api('login', 'POST', Object.fromEntries(new FormData(form))); view='all'; await refresh(); openRequestedContent(); }
+    try { auth = await api('login', 'POST', Object.fromEntries(new FormData(form))); view='all'; await refresh(false); openRequestedContent(); }
     catch (e) { $('.form-error', form).textContent = e.message === 'Failed to fetch' ? 'Cannot connect. Please try again.' : e.message; }
     finally { button.disabled = false; }
   };
@@ -148,7 +148,7 @@ async function saveTask(event) {
 function openListDialog() {
   small.innerHTML = `<form id="list-form"><div class="dialog-head"><h2 id="small-heading">Create a board</h2><button type="button" class="icon-button" data-action="close-small" aria-label="Close">${icon('close')}</button></div><div class="dialog-body"><label class="field">Board name<input name="name" maxlength="80" required placeholder="e.g. Weekend projects"></label><label class="field">Color<input name="color" type="color" value="#548775"></label><div class="form-error" role="alert"></div></div><div class="dialog-footer"><div class="actions"><button type="button" class="secondary" data-action="close-small">Cancel</button><button class="primary" type="submit">Create board</button></div></div></form>`;
   small.showModal();
-  $('#list-form').onsubmit = async e => { e.preventDefault(); const form = e.currentTarget, b = $('button[type=submit]',form); b.disabled = true; try { const list = await api('lists','POST',Object.fromEntries(new FormData(form))); view = list.id; filter = 'all'; await refresh(); small.close(); notify('Board created.'); } catch (error) { $('.form-error',form).textContent = error.message; b.disabled = false; } };
+  $('#list-form').onsubmit = async e => { e.preventDefault(); const form = e.currentTarget, b = $('button[type=submit]',form); b.disabled = true; try { const list = await api('lists','POST',Object.fromEntries(new FormData(form))); await refresh(false); navigate(list.id); small.close(); notify('Board created.'); } catch (error) { $('.form-error',form).textContent = error.message; b.disabled = false; } };
 }
 function parseCSV(text) {
   const rows = []; let row = [], field = '', quoted = false;
@@ -195,4 +195,4 @@ function openImport() {
   };
   $('#import-file').onchange = preview; $('#import-list').onchange = preview;
 }
-async function init() { try { auth = await api('session'); await refresh(); openRequestedContent(); } catch (e) { if (e.status === 401) await showSignInOrSetup().catch(handleError); else { app.innerHTML='<div class="boot">Could not connect to your daybook. Please refresh to try again.</div>'; notify(e.message); } } }
+async function init() { try { auth = await api('session'); await refresh(false); openRequestedContent(); } catch (e) { if (e.status === 401) await showSignInOrSetup().catch(handleError); else { app.innerHTML='<div class="boot">Could not connect to your daybook. Please refresh to try again.</div>'; notify(e.message); } } }

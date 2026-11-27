@@ -205,11 +205,41 @@ dialog{border:0;border-radius:9px;box-shadow:0 15px 65px #0003;padding:0;color:i
 .automation-advanced .field{margin:5px 0}
 .automation-advanced p{font-size:11px;color:#858693;margin:0 0 10px}
 @media(max-width:650px){.automation-recipe-grid,.automation-config{grid-template-columns:1fr}.automation-recipe-choice{min-height:auto}}
-.share-controls,.invite-delivery,.share-owner{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
-.share-owner{justify-content:space-between}.sharing-check{display:inline-flex;align-items:center;gap:6px;min-height:40px}
-#share-dialog .field{margin:0}.share-controls select{padding:6px;border:1px solid #c8cad4;border-radius:4px;background:white}
-#board-invite,.share-person,.invite-ready{display:grid;gap:10px}#board-invite>.primary{justify-self:start}
-.share-owner,.share-person,.invite-ready{padding:14px 0;border-top:1px solid #e3e5ec}
-.share-person small,#share-dialog .dialog-head small{display:block;color:#606275}.share-people h3{margin:20px 0 12px}
-@media(max-width:600px){#share-dialog{margin:auto 0 0;max-width:100%;width:100%;border-radius:14px 14px 0 0;padding-bottom:env(safe-area-inset-bottom)}#share-dialog button{min-height:44px}}
-.account-delivery{display:grid;gap:8px;justify-items:start}.account-delivery details{font-size:13px}.account-delivery summary{cursor:pointer}.account-delivery p{margin-top:6px}
+#share-dialog{width:560px;overflow:hidden}
+#share-dialog[open]{display:flex;flex-direction:column}
+#share-dialog .field{margin:0}
+.share-title-group,.share-invite-actions,.share-permissions,.share-delivery-actions,.invite-delivery{display:flex;align-items:center;gap:10px}
+.share-title-group{min-width:0}.share-title-group p{overflow-wrap:anywhere}
+.share-board-icon{display:grid;place-items:center;width:38px;height:38px;flex:none;border-radius:7px;background:#eaf3ff;color:var(--blue)}
+.share-fields{display:grid;grid-template-columns:minmax(0,1fr) 106px;gap:12px}
+.share-invite-actions{justify-content:space-between;margin-top:12px}
+.share-invite-actions .primary{margin-left:auto}.share-invite-actions svg,.invite-delivery svg,.share-person .avatar svg{width:16px;height:16px}
+.sharing-check{display:inline-flex;align-items:center;gap:8px;min-height:34px;font-size:13px}
+.share-people{margin-top:22px;border-top:1px solid #e6e8ef}
+.share-people .automation-section-head{margin:20px 0 8px}
+.share-person-line{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 4px}
+.share-owner strong,.share-identity strong{font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.share-role{margin-left:auto;flex:none;color:var(--muted);font-size:13px}
+.share-owner{padding-right:28px}
+.share-person{border-top:1px solid #eceef3}
+.share-person summary.share-person-line{list-style:none;cursor:pointer;border-radius:4px}
+.share-person-line::-webkit-details-marker{display:none}
+.share-person summary:hover,.share-person summary:focus-visible{background:#f5f6fa}
+.share-person summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.share-person-line>svg{width:14px;height:14px;color:var(--muted)}
+.share-person details[open]>summary>svg{transform:rotate(90deg)}
+.share-identity{display:grid;gap:3px;min-width:0}.share-identity small,.share-status{font-size:12px;line-height:1.45;color:var(--muted)}
+.share-status{margin:7px 0 0}
+.share-person-settings{display:grid;justify-items:start;gap:10px;padding:9px 8px 14px 41px}
+.share-permissions,.share-delivery-actions,.invite-delivery{flex-wrap:wrap}
+.share-permissions{align-items:end}.share-permissions .field{min-width:88px}
+.share-delivery-actions .text-button{color:var(--blue);padding:0 8px}
+.invite-ready{margin-top:16px;padding:13px 14px;display:grid;gap:8px;border:1px solid #d9e6f7;border-radius:6px;background:#f5f9ff;overflow-wrap:anywhere}
+.invite-ready p{font-size:13px;line-height:1.5}.account-delivery{display:flex;align-items:center;flex-wrap:wrap;gap:8px;flex-basis:100%}
+.account-delivery details{width:100%;font-size:13px}.account-delivery summary{cursor:pointer}.account-delivery p{margin-top:6px}
+@media(max-width:600px){
+  #share-dialog{margin:auto 0 0;max-width:100%;width:100%;max-height:calc(100dvh - 12px);border-radius:12px 12px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+  #share-dialog button,#share-dialog .field input,#share-dialog .field select,.sharing-check{min-height:44px}
+  .share-fields{grid-template-columns:minmax(0,1fr) 88px;gap:8px}
+  .share-person-settings{padding-left:4px}
+}
