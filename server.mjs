@@ -27,7 +27,10 @@ export function createApp(options = {}) {
   const hasProgram=programPages.every(page=>existsSync(resolve(programDir,page+'.html')));
   const serverSmsOnly=existsSync(programDir);
   const disclosure=smsDisclosure(publicUrl,hasProgram);
-  const texts = invitationSms(store,smsProvider,publicUrl,disclosure);
+  const operatorFile=resolve(programDir,'operator.txt');
+  const operator=existsSync(operatorFile)?readFileSync(operatorFile,'utf8').trim():'';
+  if (operator.length>80 || /[\x00-\x1f\x7f]/.test(operator)) throw new Error('SMS operator must be a single line of up to 80 characters.');
+  const texts = invitationSms(store,smsProvider,publicUrl,disclosure,operator);
   const assetRoot = existsSync(resolve(root, 'monday-assets')) ? resolve(root, 'monday-assets') : resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'monday-assets');
   const uploadRoot = resolve(dirname(options.dbPath || process.env.DB_PATH || resolve(root,'data/daybook.sqlite')), 'upload-assets');
   mkdirSync(uploadRoot,{recursive:true,mode:0o700});
