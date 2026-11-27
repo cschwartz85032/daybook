@@ -129,4 +129,11 @@ test('mobile invites, signed delivery receipts, resends and activation through t
   const email=await invite(members,{contact:'kim@example.test'},owner);
   assert.ok(email.setup.code);
   assert.equal(messages.length,total);
+  onSubmit=()=>{throw Object.assign(new Error('Sender unregistered'),{status:400,code:30034});};
+  const blocked=await invite(members,{contact:'+16025550109'},owner);
+  assert.equal(blocked.sms.manual_setup,true);
+  assert.match(blocked.sms.reason,/not registered/);
+  const codeRoute=members+'/'+blocked.id+'/setup-code';
+  assert.equal((await call(codeRoute,{},delegate)).status,403);
+  assert.ok((await (await call(codeRoute,{},owner)).json()).code);
 });

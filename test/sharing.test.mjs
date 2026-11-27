@@ -37,6 +37,13 @@ test('named board invitations, scoped data, delegated roles, and live revocation
   const friend = await signIn('friend'), pending = await signIn('pending');
   const [shared,privateBoard] = (await (await owner('data')).json()).lists;
   const members = 'lists/'+shared.id+'/members';
+  const remember=(actor,list_id)=>actor('preferences/last-board','PATCH',{list_id});
+  const saved=async actor=>(await (await actor('data')).json()).last_board_id;
+  assert.equal(await saved(owner),null);
+  assert.equal((await remember(owner,privateBoard.id)).status,200);
+  assert.equal(await saved(await signIn('owner')),privateBoard.id);
+  assert.equal((await remember(viewer,privateBoard.id)).status,404);
+  assert.equal(await saved(viewer),null);
   const invite = async (actor,username,role='view',sharing=false) => {
     const res = await actor(members,'POST',{username,role,sharing});
     assert.equal(res.status,201);
@@ -49,6 +56,10 @@ test('named board invitations, scoped data, delegated roles, and live revocation
   assert.equal((await accept(editor,editorId)).status,200);
   const viewerId = await invite(editor,'viewer');
   assert.equal((await accept(viewer,viewerId)).status,200);
+  assert.equal((await remember(viewer,shared.id)).status,200);
+  assert.equal(await saved(viewer),shared.id);
+  assert.equal(await saved(owner),privateBoard.id);
+  assert.equal((await (await viewer('export')).json()).last_board_id,undefined);
   assert.equal((await viewer(members,'POST',{username:'friend'})).status,403);
   assert.equal((await editor(members,'POST',{username:'friend',role:'view',sharing:true})).status,403);
   assert.equal((await owner(members+'/'+viewerId,'PATCH',{sharing:true})).status,200);
@@ -87,6 +98,8 @@ test('named board invitations, scoped data, delegated roles, and live revocation
   assert.equal((await owner(members+'/'+editorId,'PATCH',{role:'view'})).status,200);
   assert.equal((await editor('tasks/'+task.id+'/updates','POST',{text_body:'Edit'})).status,403);
   assert.equal((await owner(members+'/'+viewerId,'PATCH',{remove:true})).status,200);
+  assert.equal(await saved(viewer),null);
+  assert.equal((await remember(viewer,shared.id)).status,404);
   assert.equal((await viewer(filePath(sharedFile))).status,404);
   assert.deepEqual((await (await viewer('export')).json()).lists,[]);
   assert.equal((await accept(viewer,viewerId)).status,404);
@@ -97,6 +110,9 @@ test('named board invitations, scoped data, delegated roles, and live revocation
   assert.notEqual(replacement,viewerId);
   assert.equal((await accept(viewer,viewerId)).status,404);
   assert.equal((await accept(viewer,replacement)).status,200);
+  assert.equal((await owner('lists/'+privateBoard.id,'PATCH',{version:privateBoard.version,deleted:true})).status,200);
+  assert.equal(await saved(owner),null);
+  assert.equal((await remember(owner,privateBoard.id)).status,404);
 });
 
 test('upgrade attributes existing board content and imported child updates to the original owner’s boards', async t => {

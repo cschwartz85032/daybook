@@ -46,7 +46,29 @@ const initial = name => esc(name?.slice(0,2).toUpperCase() || '');
 const brand = () => '<img class="brand-mark" src="./favicon.svg" alt=""><strong>daybook</strong><span class="brand-product">boards for work and life</span>';
 const isArchive = () => ['trash','completed','archived'].includes(view);
 function rememberPreferences() { try { localStorage.setItem('daybook-favorites',JSON.stringify([...favorites])); localStorage.setItem('daybook-hidden-columns',JSON.stringify([...hiddenColumns])); } catch {} }
-function navigate(id) { view=id; search=''; filter='all'; statusFilter=''; priorityFilter=''; personFilter=''; selectedIds.clear(); selectedSubitems.clear(); closePopover(); render(); }
+function setBoardUrl(boardId) {
+  const url=new URL(location.href);
+  url.searchParams.delete('invite');
+  url.searchParams.delete('item');
+  if (boardId) url.searchParams.set('board',boardId);
+  else url.searchParams.delete('board');
+  if (url.href!==location.href) history.replaceState(null,'',url);
+}
+let boardSave=Promise.resolve();
+function navigate(id,{preserveLink=false,remember=true}={}) {
+  view=id; search=''; filter='all'; statusFilter=''; priorityFilter=''; personFilter='';
+  selectedIds.clear(); selectedSubitems.clear(); closePopover();
+  const board=listById(id);
+  if (!preserveLink) setBoardUrl(board?.id);
+  if (board && !board.deleted_at && remember) {
+    // Serialize rapid board switches so the most recent selection wins.
+    const account=auth;
+    boardSave=boardSave.then(()=>{
+      if (auth===account) return api('preferences/last-board','PATCH',{list_id:id},{keepalive:true});
+    }).catch(()=>{ if (auth===account && view===id) notify('Could not save your last board.'); });
+  }
+  render();
+}
 function render() {
   closePopover();
   const previousScroll = $('.board-scroll')?.scrollTop || 0;
@@ -342,7 +364,7 @@ function openStatusEditor(listId,subitems=false){
 }
 function openGroupDialog(){
   small.innerHTML=`<form id="group-form"><div class="dialog-head"><h2 id="small-heading">Add a group</h2><button type="button" class="icon-button" data-action="close-small" aria-label="Close">${icon('close')}</button></div><div class="dialog-body"><label class="field">Board<select name="list_id">${listOptions(listById(view)?.id||firstEditableBoard()?.id)}</select></label><label class="field">Group name<input name="name" required maxlength="100" placeholder="e.g. This week"></label><label class="field">Group color<input name="color" type="color" value="${groupColors[(data.groups||[]).length%groupColors.length]}"></label><div class="form-error" role="alert"></div></div><div class="dialog-footer"><button class="secondary" type="button" data-action="close-small">Cancel</button><button class="primary" type="submit">Add group</button></div></form>`;small.showModal();$('[name=name]',small).focus();
-  $('#group-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,b=$('[type=submit]',form);b.disabled=true;try{const input=Object.fromEntries(new FormData(form));await api('groups','POST',input);view=input.list_id;groupBy='group';layout='table';search='';statusFilter='';priorityFilter='';personFilter='';await refresh();small.close();notify('Group added.');}catch(err){$('.form-error',form).textContent=err.message;b.disabled=false;}};
+  $('#group-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,b=$('[type=submit]',form);b.disabled=true;try{const input=Object.fromEntries(new FormData(form));await api('groups','POST',input);groupBy='group';layout='table';await refresh(false);navigate(input.list_id);small.close();notify('Group added.');}catch(err){$('.form-error',form).textContent=err.message;b.disabled=false;}};
 }
 function infoDialog(title,html){small.innerHTML=`<div class="dialog-head"><h2 id="small-heading">${title}</h2><button class="icon-button" data-action="close-small" aria-label="Close">${icon('close')}</button></div><div class="dialog-body info-content">${html}</div>`;small.showModal();}
 const automationRecipes={
@@ -477,7 +499,7 @@ document.addEventListener('click',async event=>{
     else if(a==='sidebar-rename-board'){const board=listById(b.dataset.listId);closePopover();small.innerHTML=`<form id="sidebar-board-rename"><div class="dialog-head"><h2 id="small-heading">Rename board</h2><button type="button" class="icon-button" data-action="close-small" aria-label="Close">${icon('close')}</button></div><div class="dialog-body"><label class="field">Board name<input name="name" value="${esc(board.name)}" maxlength="80" required></label><div class="form-error" role="alert"></div></div><div class="dialog-footer"><button type="button" class="secondary" data-action="close-small">Cancel</button><button type="submit" class="primary">Save name</button></div></form>`;small.showModal();const input=$('[name=name]',small);input.focus();input.select();$('#sidebar-board-rename',small).onsubmit=async e=>{e.preventDefault();const submit=$('[type=submit]',small);submit.disabled=true;try{await api(`lists/${board.id}`,'PATCH',{version:board.version,name:input.value.trim()});small.close();await refresh();notify('Board renamed.');}catch(err){$('.form-error',small).textContent=err.message;submit.disabled=false;}};}
     else if(a==='delete-board'){const board=listById(b.dataset.listId||view);closePopover();small.innerHTML=`<div class="dialog-head"><h2 id="small-heading">Move ${esc(board.name)} to trash?</h2><button class="icon-button" data-action="close-small" aria-label="Close">${icon('close')}</button></div><div class="dialog-body"><p>The board and its items will be hidden. You can restore the board from Trash within 30 days.</p></div><div class="dialog-footer"><button class="secondary" data-action="close-small">Cancel</button><button class="primary" data-action="confirm-delete-board" data-list-id="${board.id}">Move to trash</button></div>`;small.showModal();}
     else if(a==='confirm-delete-board'){const board=listById(b.dataset.listId);b.disabled=true;await api(`lists/${board.id}`,'PATCH',{version:board.version,deleted:true});small.close();navigate('trash');await refresh();notify('Board moved to trash.');}
-    else if(a==='restore-board'){const board=listById(b.dataset.listId);b.disabled=true;await api(`lists/${board.id}`,'PATCH',{version:board.version,deleted:false});navigate(board.id);await refresh();notify('Board restored.');}
+    else if(a==='restore-board'){const board=listById(b.dataset.listId);b.disabled=true;await api(`lists/${board.id}`,'PATCH',{version:board.version,deleted:false});await refresh(false);navigate(board.id);notify('Board restored.');}
     else if(a==='collapse-all'||a==='expand-all'){renderedGroups.forEach(g=>a==='collapse-all'?collapsedGroups.add(view+'|'+g.key):collapsedGroups.delete(view+'|'+g.key));closePopover();renderTasks();}
     else if(a==='status-cell'||a==='priority-cell'||a==='person-cell'||a==='move-cell'){
       popTask=t;popField=a;
@@ -541,7 +563,7 @@ document.addEventListener('click',async event=>{
     else if(a==='import'){closePopover();openImport();}
     else if(a==='confirm-import'&&pendingImport){b.disabled=true;const result=await api('import','POST',pendingImport);await refresh();small.close();notify(`${result.imported} items imported. ${result.skipped} duplicates skipped.`);}
     else if(a==='account')showPopover(b,`<div class="account-menu"><span class="avatar">${initial(auth.username)}</span><div><strong>${esc(auth.username)}</strong><small>Personal workspace</small></div></div><hr>`+menuItem('logout','Sign out','logout'));
-    else if(a==='logout'){await api('logout','POST',{});auth=null;view='all';selectedIds.clear();selectedSubitems.clear();data={lists:[],tasks:[],invitations:[]};closePopover();renderLogin();}
+    else if(a==='logout'){await boardSave;await api('logout','POST',{});setBoardUrl(null);auth=null;view='all';selectedIds.clear();selectedSubitems.clear();data={lists:[],tasks:[],invitations:[]};closePopover();renderLogin();}
     else if(a==='help')infoDialog('Make yourself at home',`<p>Organize items into boards and groups. Click a name, status, date, priority, or person to edit it directly.</p><p>Open the conversation icon on an item for notes, subitems, and repeat schedules. In Kanban, drag cards between columns to change status.</p><div class="shortcut"><kbd>/</kbd>Search items</div><div class="shortcut"><kbd>N</kbd>Create an item</div><div class="shortcut"><kbd>Esc</kbd>Close a menu or panel</div>`);
     else if(a==='automations')openAutomations();
     else if(a==='automation-new')openAutomationForm(b.dataset.listId);
